@@ -117,9 +117,10 @@ class EventLog:
         self._lock = threading.Lock()
 
     def emit(self, event: str, task_id: str | None = None, attempt: int | None = None, **fields) -> None:
-        entry = {"ts": now_iso(), "run_id": self.run_id, "task_id": task_id, "attempt": attempt,
+        entry = {"run_id": self.run_id, "task_id": task_id, "attempt": attempt,
                  "event": event, **{k: _sanitize(v) for k, v in fields.items()}}
-        line = json.dumps(_sanitize(entry), ensure_ascii=False)
+        # ts is set after sanitizing: "+00:00" is outside the ID alphabet and would become a hash
+        line = json.dumps({"ts": now_iso(), **_sanitize(entry)}, ensure_ascii=False)
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as fh:

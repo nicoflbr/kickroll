@@ -23,6 +23,8 @@ export type Messages = {
   stale: string
   staleLine: (id: string, phase: string) => string
   at: (time: string) => string
+  bypassTab: string
+  moreTabs: (n: number) => string
 }
 
 const en: Messages = {
@@ -55,6 +57,8 @@ const en: Messages = {
   stale: 'No kickroll process: last state, not live',
   staleLine: (id, phase) => `No active run · last: ${id}, stopped at ${phase}`,
   at: time => `last update ${time}`,
+  bypassTab: 'Bypass',
+  moreTabs: n => `+${n} more`,
 }
 
 const de: Messages = {
@@ -87,6 +91,8 @@ const de: Messages = {
   stale: 'Kein kickroll-Prozess: letzter Stand, nicht live',
   staleLine: (id, phase) => `Kein aktiver Lauf · zuletzt: ${id}, abgebrochen bei ${phase}`,
   at: time => `Stand ${time}`,
+  bypassTab: 'Bypass',
+  moreTabs: n => `+${n} weitere`,
 }
 
 export function messages(lang: string | undefined): Messages {

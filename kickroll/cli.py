@@ -28,7 +28,8 @@ from kickroll.plan import command_error, normalize_plan, tracked_files, validate
 from kickroll.planner import PlanError, create_plan, new_run_id, planner_tier
 from kickroll.routing import HaikuDecider, resolve_backend
 from kickroll.runner import ClaudeCall, ClaudeNotFound, ClaudeRunner, ErrorClass, FakeRunner
-from kickroll.status_file import Heartbeat, build_status, live_run, mark_ended, write_status
+from kickroll.status_file import (Heartbeat, beat_path, build_status, entry_path, live_run, mark_ended, publish,
+                                  remove_entry, session_id)
 from kickroll.store import DailyUsage, atomic_write_json, now_iso, read_json
 from kickroll.verify import PreflightError, resolve_python, run_checks
 
@@ -69,13 +70,15 @@ def make_jev(cfg, repo: Path, fake: bool, runner=None) -> JevService:
 
 
 def pane(cfg, run_id: str, status: str, phase: str, note: str = "", plan: dict | None = None,
-         budget: dict | None = None, started: str | None = None) -> None:
-    """Status file for phases before the actual run."""
+         budget: dict | None = None, started: str | None = None, repo: Path | None = None,
+         key: str | None = None) -> None:
+    """Status entry for phases before the actual run (key: run_id unless given)."""
     acct = Accountant(cfg, dict(budget or {}))
     try:
-        write_status(Path(cfg.status_path), build_status({
+        publish(Path(cfg.status_path), build_status({
             "run_id": run_id, "status": status, "phase": phase, "note": note, "started": started or now_iso(),
-            "budget": acct.c, "limits": acct.limits(), "plan": plan or {}, "tasks": {}}))
+            "repo": str(repo or ""), "budget": acct.c, "limits": acct.limits(), "plan": plan or {}, "tasks": {}}),
+            key=key)
     except OSError:
         pass
 
@@ -147,11 +150,11 @@ def cmd_plan(args, cfg, repo: Path) -> int:
     run_id = new_run_id()
     started = now_iso()
     runner = make_runner(cfg, args.fake)
-    pane(cfg, run_id, "RUNNING", "PREFLIGHT", started=started)
+    pane(cfg, run_id, "RUNNING", "PREFLIGHT", started=started, repo=repo)
     checks = checks_from(cfg, args.test_cmd)
     preflight(cfg, repo, runner, args.fake)
 
-    pane(cfg, run_id, "RUNNING", "BYPASS", started=started)
+    pane(cfg, run_id, "RUNNING", "BYPASS", started=started, repo=repo)
     jev = make_jev(cfg, repo, args.fake, runner)
     decision = jev.bypass(args.goal, bool(checks), cfg.bypass_min_subtasks)
     if decision.source == "jev" and not decision.jev_ok:
@@ -159,7 +162,7 @@ def cmd_plan(args, cfg, repo: Path) -> int:
     if args.bypass or (not decision.use_orchestrator and not args.force_orch):
         say(f"Bypass: direct call with {decision.tier} ({'--bypass' if args.bypass else decision.reason}).")
         if not args.yes:
-            pane(cfg, run_id, "PAUSED", "APPROVAL", msg.NOTE_DIRECT_SUGGESTED, started=started)
+            pane(cfg, run_id, "PAUSED", "APPROVAL", msg.NOTE_DIRECT_SUGGESTED, started=started, repo=repo)
             say("Run with --yes (changes the current branch directly) or --force-orchestrate for the orchestrator.")
             return EXIT_OK
         return run_direct(args.goal, decision.tier, cfg, runner, repo, run_id, started)
@@ -168,12 +171,12 @@ def cmd_plan(args, cfg, repo: Path) -> int:
     counters: dict = {}
     acct = Accountant(cfg, counters, usage)
     tier = planner_tier(cfg, decision.metrics)
-    pane(cfg, run_id, "RUNNING", "PLAN", msg.NOTE_PLANNER.format(tier=tier), budget=counters, started=started)
+    pane(cfg, run_id, "RUNNING", "PLAN", msg.NOTE_PLANNER.format(tier=tier), budget=counters, started=started, repo=repo)
     try:
         plan = create_plan(args.goal, run_id, cfg, runner, acct, str(repo), tier, checks,
                            on_invalid=lambda n, errs: say(f"Planner attempt {n} rejected: " + "; ".join(errs)[:600]))
     except PlanError as exc:
-        pane(cfg, run_id, "FAILED", "DONE", msg.NOTE_PLAN_INVALID, budget=counters, started=started)
+        pane(cfg, run_id, "FAILED", "DONE", msg.NOTE_PLAN_INVALID, budget=counters, started=started, repo=repo)
         say(f"{exc}")
         for e in exc.errors[:20]:
             say(f"  - {e}")
@@ -185,7 +188,7 @@ def cmd_plan(args, cfg, repo: Path) -> int:
     atomic_write_json(out, plan)
     print_plan(plan)
     say(f"Plan saved: {out} (and {run_dir / 'plan.json'})")
-    pane(cfg, run_id, "PAUSED", "APPROVAL", msg.NOTE_PLAN_WAITING, plan=plan, budget=counters, started=started)
+    pane(cfg, run_id, "PAUSED", "APPROVAL", msg.NOTE_PLAN_WAITING, plan=plan, budget=counters, started=started, repo=repo)
     if args.yes and not args.dry:
         return execute(plan, cfg, repo, args.fake)
     say(f"Approve with: kickroll run --plan {out}")
@@ -194,15 +197,15 @@ def cmd_plan(args, cfg, repo: Path) -> int:
 
 def run_direct(goal: str, tier: str, cfg, runner, repo: Path, run_id: str, started: str) -> int:
     say(f"Direct call: claude -p --model {tier} in the current working tree.")
-    pane(cfg, run_id, "RUNNING", "EXECUTE", msg.NOTE_DIRECT_RUNNING.format(tier=tier), started=started)
+    pane(cfg, run_id, "RUNNING", "EXECUTE", msg.NOTE_DIRECT_RUNNING.format(tier=tier), started=started, repo=repo)
     res = runner.run(ClaudeCall(role="direct", key="direct", prompt=goal, model=tier, cwd=str(repo),
                                 timeout_s=cfg.timeouts[tier], tools=cfg.worker_tools))
     DailyUsage(Path(cfg.usage_path), cfg.daily_max_calls, cfg.daily_max_weighted).record(cfg.weight(tier))
     if res.error:
-        pane(cfg, run_id, "FAILED", "DONE", msg.NOTE_DIRECT_FAILED.format(error=res.error), started=started)
+        pane(cfg, run_id, "FAILED", "DONE", msg.NOTE_DIRECT_FAILED.format(error=res.error), started=started, repo=repo)
         say(f"Direct call failed ({res.error}).")
         return EXIT_PAUSED if res.error in (ErrorClass.RATE_LIMIT, ErrorClass.AUTH) else EXIT_PARTIAL
-    pane(cfg, run_id, "SUCCESS", "DONE", msg.NOTE_DIRECT_DONE, started=started)
+    pane(cfg, run_id, "SUCCESS", "DONE", msg.NOTE_DIRECT_DONE, started=started, repo=repo)
     print(res.text)
     return EXIT_OK
 
@@ -284,7 +287,10 @@ def cmd_status(args, cfg, repo: Path) -> int:
     if not state:
         say(f"No run {args.run_id}.")
         return EXIT_USAGE
-    print(json.dumps(build_status(state), ensure_ascii=False, indent=1))
+    entry = read_json(entry_path(Path(cfg.status_path), args.run_id)) or {}
+    # the pid of the process that ran it (0 when unknown), not this status command's own
+    pid = entry.get("pid") if isinstance(entry.get("pid"), int) else 0
+    print(json.dumps(build_status(state, pid=pid), ensure_ascii=False, indent=1))
     return EXIT_OK
 
 
@@ -294,17 +300,21 @@ def cmd_clean(args, cfg, repo: Path) -> int:
     wt = Path(state.get("worktree") or Path(cfg.worktree_root) / run8(args.run_id))
     branch = state.get("branch") or f"kickroll/{args.run_id}"
     Git(repo).remove_worktree(wt, branch if args.delete_branch else None)
+    remove_entry(Path(cfg.status_path), args.run_id)
     say(f"Worktree removed: {wt}" + (f", branch {branch} deleted" if args.delete_branch else
                                      f" (branch {branch} kept; --delete-branch to delete)"))
     return EXIT_OK
 
 
 def cmd_bypassed(args, cfg, repo: Path) -> int:
-    """The chat handles the task itself (skill bypass): tell the pane, unless a live run owns status.json."""
-    if live := live_run(Path(cfg.status_path)):
-        say(f"Run {live} is still active; status not changed.")
+    """The chat handles the task itself (skill bypass): its own pane entry, one per session (a later bypass of
+    the same session replaces it). Runs of other repositories do not matter; a live run in this one does."""
+    if live := live_run(Path(cfg.status_path), repo=repo):
+        say(f"Run {live} is still active in this repository; status not changed.")
         return EXIT_USAGE
-    pane(cfg, new_run_id(), "BYPASSED", "BYPASS", msg.NOTE_BYPASSED.format(reason=" ".join(args.reason.split())))
+    run_id = new_run_id()
+    pane(cfg, run_id, "BYPASSED", "BYPASS", msg.NOTE_BYPASSED.format(reason=" ".join(args.reason.split())),
+         repo=repo, key=f"bypass-{session_id() or run_id}")
     say("Pane: task handled directly, no kickroll run.")
     return EXIT_OK
 
@@ -424,7 +434,7 @@ def run_with_heartbeat(handler, args, cfg, repo: Path) -> int:
     """Beat heartbeat.json while the command runs; whatever ends it, never leave the pane at RUNNING."""
     note = msg.NOTE_ENDED
     try:
-        with Heartbeat(Path(cfg.status_path).with_name("heartbeat.json")):
+        with Heartbeat(Path(cfg.status_path).with_name("heartbeat.json"), also=[beat_path(Path(cfg.status_path))]):
             return handler(args, cfg, repo)
     except KeyboardInterrupt:
         note = msg.NOTE_ABORTED.format(error="interrupted")

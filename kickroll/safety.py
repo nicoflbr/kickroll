@@ -47,9 +47,11 @@ def redact(text: str, roots: list[str] | None = None) -> str:
     for root in sorted({r for r in (roots or []) if r}, key=len, reverse=True):
         for variant in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
             out = re.sub(re.escape(variant) + r"[\\/]?", "", out, flags=re.IGNORECASE)
-    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    home = (os.environ.get("USERPROFILE") or os.path.expanduser("~")).rstrip("\\/")
     if home and len(home) > 3:
-        out = re.sub(re.escape(home), "~", out, flags=re.IGNORECASE)
+        # either separator (C:\Users\x, C:/Users/x), any case; not inside a longer name (C:\Users\x2)
+        parts = [re.escape(p) for p in re.split(r"[\\/]+", home)]
+        out = re.sub(r"[\\/]+".join(parts) + r"(?![A-Za-z0-9_.-])", "~", out, flags=re.IGNORECASE)
     return out
 
 

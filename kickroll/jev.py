@@ -192,10 +192,10 @@ def _metrics(ans: dict) -> dict:
 
 def l2_verdict(m: dict, judgement_ids: list[str], risk: str, diff_sent: bool, truncated: bool) -> str:
     """fail | suspect | uncertain | pass (pass only as shadow, never as sole acceptance)."""
-    if m.get("v4", 0) >= YES_AT:
+    # v2 ("parts left out") and v4 judge the worker's own words, not the code: a clear yes sends the work to the
+    # L3 reviewer, who sees the diff. Live finding: v2 0.73-0.94 failed three attempts whose tests all passed.
+    if m.get("v4", 0) >= YES_AT or m.get("v2", 0) >= YES_AT:
         return "suspect"
-    if m.get("v2", 0) >= YES_AT:
-        return "fail"
     if not diff_sent:
         return "uncertain"
     v1 = [m.get(f"v1_{i}", 0.5) for i in judgement_ids]

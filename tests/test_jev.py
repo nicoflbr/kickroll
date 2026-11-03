@@ -77,7 +77,8 @@ class ServiceTest(unittest.TestCase):
 
     def test_l2_verdict(self):
         self.assertEqual(l2_verdict({"v4": 0.8}, [], "low", True, False), "suspect")
-        self.assertEqual(l2_verdict({"v2": 0.8}, [], "low", False, False), "fail")
+        self.assertEqual(l2_verdict({"v2": 0.8}, [], "low", False, False), "suspect")  # reviewer decides
+        self.assertEqual(l2_verdict({"v2": 0.8}, [], "low", True, False), "suspect")
         # Live finding: an unsure yes/no value (about 0.5-0.66) is not a "yes" and must not fail the task.
         for unsure in (0.5, 0.56, 0.66, 0.69):
             self.assertEqual(l2_verdict({"v2": unsure}, [], "medium", False, False), "uncertain")

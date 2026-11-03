@@ -1,7 +1,17 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Budget, Decision, JevUsage, ModelUsage, RunStatus, TaskStatus } from '../types'
+import type { Decision, RunEntry, RunStatus, TaskStatus } from '../types'
+import {
+  beatPid,
+  entryKey,
+  orderEntries,
+  parseRun,
+  pick,
+  tabLabel,
+  tabsOf,
+  withLiveness,
+} from './entries'
 import { messages } from './i18n'
 import { clock, dashboard, idleLine, idleRun } from './svg'
 
@@ -9,8 +19,10 @@ const PANE = 'kickroll'
 const COMMAND = 'kickroll-panel'
 const POLL_MS = 1500
 const KEEP = 200
-// heartbeat.json is rewritten every 5 s; this many polls without a new beat (30 s) means the run is dead.
+// Legacy status.json (kickroll before 0.2.0): this many polls without a new heartbeat.json (30 s) means dead.
 const STALE_POLLS = 20
+// Status entries read per poll (newest first); kickroll itself keeps about 20 finished ones.
+const MAX_FILES = 40
 
 const PHASES = ['PREFLIGHT', 'BYPASS', 'PLAN', 'APPROVAL', 'EXECUTE', 'DONE']
 const STEPS = ['ROUTE', 'WORK', 'L0', 'L1', 'L3', 'COMMIT']
@@ -55,15 +67,20 @@ const decisions = atom(
   [],
   { shape: 'decisions-1' },
 )
-const run = atom({ plugin: 'kickroll-panel', key: 'run' } as const, null, {
-  shape: 'run-4',
+// All status entries, ordered for the tab bar; and the key of the tab the person picked ('' = newest).
+const runs = atom({ plugin: 'kickroll-panel', key: 'runs' } as const, [], {
+  shape: 'runs-1',
+})
+const selected = atom({ plugin: 'kickroll-panel', key: 'selected' } as const, '', {
+  shape: 'selected-1',
 })
 
 let lastLogKey = ''
-let lastRunRaw = ''
+let lastRunsKey = ''
 let lastBeatRaw = ''
 let beatIdle = 0
-let lastStale = false
+// status/<name> -> its mtime and parsed content, so a poll reads only files that changed
+const cache = new Map<string, { mtime: number; run: RunStatus | null }>()
 
 // One log line -> decision; malformed lines are skipped.
 function parseDecision(line: string): Decision | undefined {
@@ -85,69 +102,6 @@ function parseDecision(line: string): Decision | undefined {
   }
 }
 
-function parseBudget(raw: unknown): Budget | undefined {
-  const b = raw as { used?: unknown; max?: unknown } | null
-  if (!b || typeof b.used !== 'number' || typeof b.max !== 'number') {
-    return undefined
-  }
-  return { used: b.used, max: b.max }
-}
-
-// status.json -> RunStatus; anything that does not match the schema is dropped.
-function parseRun(text: string): RunStatus | null {
-  try {
-    const raw = JSON.parse(text)
-    if (raw.version !== 1 || !Array.isArray(raw.tasks)) return null
-    const budgets: Record<string, Budget> = {}
-    for (const key of Object.keys(raw.budgets ?? {})) {
-      const b = parseBudget(raw.budgets[key])
-      if (b) budgets[key] = b
-    }
-    const usage: Record<string, ModelUsage> = {}
-    for (const model of ['haiku', 'sonnet', 'opus']) {
-      const u = raw.usage?.[model]
-      usage[model] = {
-        calls: Number(u?.calls ?? 0),
-        tokens: Number(u?.tokens ?? 0),
-        seconds: Number(u?.seconds ?? 0),
-      }
-    }
-    // Older status files have no "jev" block: show zeros.
-    const jev: JevUsage = {
-      calls: Number(raw.jev?.calls ?? 0),
-      errors: Number(raw.jev?.errors ?? 0),
-      seconds: Number(raw.jev?.seconds ?? 0),
-    }
-    const tasks: TaskStatus[] = raw.tasks.map((t: Record<string, unknown>) => ({
-      id: String(t.id ?? '?'),
-      title: String(t.title ?? ''),
-      kind: String(t.kind ?? ''),
-      status: String(t.status ?? 'PENDING'),
-      step: String(t.step ?? 'NONE'),
-      attempt: Number(t.attempt ?? 1),
-      maxAttempts: Number(t.max_attempts ?? 3),
-      model: String(t.model ?? ''),
-      dependsOn: Array.isArray(t.depends_on) ? t.depends_on.map(String) : [],
-      failedCriteria: Number(t.failed_criteria ?? 0),
-    }))
-    return {
-      runId: String(raw.run_id ?? ''),
-      pid: Number(raw.pid ?? 0),
-      status: String(raw.status ?? 'RUNNING'),
-      phase: String(raw.phase ?? 'EXECUTE'),
-      note: String(raw.note ?? ''),
-      updated: String(raw.updated ?? ''),
-      started: String(raw.started ?? ''),
-      budgets,
-      usage,
-      jev,
-      tasks,
-    }
-  } catch {
-    return null
-  }
-}
-
 function beatPidOf(text: string): number {
   try {
     return Number(JSON.parse(text).pid ?? -1)
@@ -164,7 +118,62 @@ async function dataDir($: EngineInterface): Promise<string> {
   return `${home.replace(/\\/g, '/')}/.kickroll`
 }
 
-// Reads both files and writes the state only on change (redraws the readers).
+// status/*.json -> entries with liveness from the pid-<pid>.beat.json files; null when status/ is missing.
+async function readEntries($: EngineInterface, dir: string, staleNote: string): Promise<RunEntry[] | null> {
+  const files = await $.fs.list(`${dir}/status`).catch(() => null)
+  if (!files) return null
+  const now = Date.now()
+  const beats = new Map<number, number>()
+  const found: { key: string; name: string; mtime: number }[] = []
+  for (const f of files) {
+    if (f.kind !== 'file') continue
+    const pid = beatPid(f.name)
+    if (pid !== undefined) {
+      beats.set(pid, f.mtimeMs)
+      continue
+    }
+    const key = entryKey(f.name)
+    if (key !== undefined) found.push({ key, name: f.name, mtime: f.mtimeMs })
+  }
+  found.sort((a, b) => b.mtime - a.mtime)
+  const out: RunEntry[] = []
+  const seen = new Set<string>()
+  for (const f of found.slice(0, MAX_FILES)) {
+    seen.add(f.name)
+    let hit = cache.get(f.name)
+    if (!hit || hit.mtime !== f.mtime) {
+      const text = await $.fs.read(`${dir}/status/${f.name}`).catch(() => '')
+      hit = { mtime: f.mtime, run: text ? parseRun(text) : null }
+      cache.set(f.name, hit)
+    }
+    if (hit.run) out.push(withLiveness(f.key, hit.run, beats, now, staleNote))
+  }
+  for (const name of [...cache.keys()]) {
+    if (!seen.has(name)) cache.delete(name)
+  }
+  return orderEntries(out)
+}
+
+// kickroll before 0.2.0: one status.json, live while heartbeat.json keeps changing.
+async function readLegacy($: EngineInterface, dir: string, staleNote: string): Promise<RunEntry[]> {
+  const raw = await $.fs.read(`${dir}/status.json`).catch(() => '')
+  const beat = await $.fs.read(`${dir}/heartbeat.json`).catch(() => '')
+  if (beat !== lastBeatRaw) {
+    lastBeatRaw = beat
+    beatIdle = 0
+  } else {
+    beatIdle++
+  }
+  const parsed = raw ? parseRun(raw) : null
+  if (!parsed) return []
+  const stale =
+    parsed.status === 'RUNNING' &&
+    (!beat || beatPidOf(beat) !== parsed.pid || beatIdle >= STALE_POLLS)
+  const live = parsed.status === 'RUNNING' && !stale
+  return [{ ...parsed, key: 'status', live, ...(stale ? { status: 'STALE', note: staleNote } : {}) }]
+}
+
+// Reads the router log and the status entries; writes the state only on change (redraws the readers).
 async function refresh($: EngineInterface) {
   const dir = await dataDir($)
   let log = ''
@@ -185,42 +194,19 @@ async function refresh($: EngineInterface) {
     await update($, decisions, () => list)
   }
 
-  let raw = ''
-  try {
-    raw = await $.fs.read(`${dir}/status.json`)
-  } catch {
-    raw = ''
-  }
-  let beat = ''
-  try {
-    beat = await $.fs.read(`${dir}/heartbeat.json`)
-  } catch {
-    beat = ''
-  }
-  if (beat !== lastBeatRaw) {
-    lastBeatRaw = beat
-    beatIdle = 0
-  } else {
-    beatIdle++
-  }
-  const beatPid = beatPidOf(beat)
-
-  // RUNNING only counts while the writing process still beats; otherwise the file is a leftover.
-  const parsedNow = raw ? parseRun(raw) : null
-  const stale =
-    parsedNow?.status === 'RUNNING' &&
-    (!beat || beatPid !== parsedNow.pid || beatIdle >= STALE_POLLS)
-  if (raw !== lastRunRaw || stale !== lastStale) {
-    lastRunRaw = raw
-    lastStale = stale
-    const T = messages(await $.env.get('KICKROLL_LANG'))
-    const shown = parsedNow && stale ? { ...parsedNow, status: 'STALE', note: T.stale } : parsedNow
-    await update($, run, () => shown)
+  const T = messages(await $.env.get('KICKROLL_LANG'))
+  const entries = (await readEntries($, dir, T.stale)) ?? (await readLegacy($, dir, T.stale))
+  const runsKey = JSON.stringify(entries)
+  if (runsKey !== lastRunsKey) {
+    lastRunsKey = runsKey
+    await update($, runs, () => entries)
   }
 
-  const current = stale ? null : parsedNow
+  // Status line: the picked tab while it runs, else the newest live run.
+  const sel = pick(entries, await read($, selected))
+  const current = sel?.live ? sel : entries.find(e => e.live)
   const active = current?.tasks.find(t => t.status === 'RUNNING')
-  if (current && current.status === 'RUNNING' && active) {
+  if (current && active) {
     $.ui.status(
       `kickroll ${current.runId}: ${active.id} ${active.step} ${active.attempt}/${active.maxAttempts}`,
     )
@@ -261,12 +247,39 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
+    const { Box, Text, Button } = ui
     const list = await read($, decisions)
-    const current = await read($, run)
+    const entries = await read($, runs)
+    const chosen = await read($, selected)
+    const current: RunEntry | null = pick(entries, chosen)
     const rows = e.viewport?.rows ?? 30
     const lang = await $.env.get('KICKROLL_LANG')
     const T = messages(lang)
+
+    // One tab per entry (a run of any session or repository, or a skill bypass); none for a single entry.
+    const choose = (key: string) => () => void update($, selected, () => key)
+    const { shown, hidden } = tabsOf(entries, chosen)
+    const tabBar =
+      entries.length > 1 ? (
+        <Box flexDirection="row" gap={1}>
+          {shown.map(t => (
+            <Button
+              key={`tab:${t.key}`}
+              variant={t.key === current?.key ? 'primary' : undefined}
+              dimColor={t.key !== current?.key}
+              onPress={choose(t.key)}
+            >
+              <Text color={RUN_COLOR[t.status] ?? '#888780'}>●</Text>
+              {` ${tabLabel(t, T.bypassTab)}`}
+            </Button>
+          ))}
+          {hidden.length > 0 ? (
+            <Button key="tab:more" dimColor onPress={choose(hidden[0].key)}>
+              {T.moreTabs(hidden.length)}
+            </Button>
+          ) : null}
+        </Box>
+      ) : null
 
     // Desktop: own vector dashboard; other surfaces: the text view below.
     if ('Svg' in ui) {
@@ -278,6 +291,7 @@ export const register: Register = on => {
 
       return (
         <Box flexDirection="column" gap={1}>
+          {tabBar}
           <Svg
             source={graphic.source}
             alt={graphic.alt}
@@ -392,6 +406,7 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
+        {tabBar}
         {current && idleRun(current) ? (
           <Box flexDirection="column">
             <Box flexDirection="row" gap={2}>

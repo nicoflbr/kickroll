@@ -203,7 +203,10 @@ def _assign_criterion_ids(task: dict) -> None:
 def max_attempts(task: dict, risk: str | None = None) -> int:
     risk = risk or task.get("risk", "medium")
     default = 4 if risk == "high" else 3
-    value = task.get("budget", {}).get("max_attempts", default)
+    budget = task.get("budget")
+    value = budget.get("max_attempts", default) if isinstance(budget, dict) else default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        value = default  # planner output: "abc", None, ...
     return max(1, min(4, int(value)))
 
 
@@ -241,6 +244,10 @@ def validate_plan(plan: dict, max_tasks: int = 8, existing: Iterable[str] = ()) 
         if tid in tasks:
             errors.append(f"duplicate task ID: {tid}")
         tasks[tid] = t
+    for key in ("global_checks", "acceptance_files"):
+        if not isinstance(plan.get(key, []), list):
+            errors.append(f"{key} must be a list")
+            plan[key] = []
     for i, cmd in enumerate(plan.get("global_checks", [])):
         if err := command_error(cmd):
             errors.append(f"global_checks[{i}]: {err}")
@@ -268,8 +275,9 @@ def _check_dag(tasks: dict) -> list[str]:
     errors = []
     for tid, t in tasks.items():
         deps = t.get("depends_on", [])
-        if not isinstance(deps, list):
-            errors.append(f"{tid}: depends_on must be a list")
+        if not _str_list(deps):
+            errors.append(f"{tid}: depends_on must be a list of task IDs")
+            t["depends_on"] = []
             continue
         for d in deps:
             if d not in tasks:
@@ -296,7 +304,7 @@ def _check_task(t: dict) -> list[str]:
     for key in ("title", "description"):
         if not isinstance(t.get(key), str) or not t[key].strip():
             errors.append(f"{key} missing")
-    if len(t.get("description", "")) > 1500:
+    if isinstance(t.get("description"), str) and len(t["description"]) > 1500:
         errors.append("description > 1500 characters")
     kind = t.get("kind")
     if kind not in KINDS:
@@ -311,6 +319,12 @@ def _check_task(t: dict) -> list[str]:
     if cx is not None and (not isinstance(cx, (int, float)) or isinstance(cx, bool) or not 0 <= cx <= 2):
         errors.append("complexity must be a number 0..2")
     writes = t.get("writes", [])
+    if not isinstance(writes, list) or not all(isinstance(w, str) for w in writes):
+        errors.append("writes must be a list of strings")
+        writes = []
+    if not isinstance(t.get("forbidden", []), list):
+        errors.append("forbidden must be a list of strings")
+        t["forbidden"] = []
     if kind in WRITE_KINDS and not writes:
         errors.append("code/test task needs writes")
     if kind not in WRITE_KINDS and writes:
@@ -328,6 +342,9 @@ def _check_task(t: dict) -> list[str]:
     ids = set()
     has_test = False
     for c in crits:
+        if not isinstance(c, dict):
+            errors.append(f"criterion must be an object: {str(c)[:40]!r}")
+            continue
         cid, ctype = c.get("id"), c.get("type")
         if not isinstance(cid, str) or not _ID.match(cid) or cid in ids:
             errors.append(f"criterion ID invalid/duplicate: {cid!r}")
@@ -361,16 +378,20 @@ def _check_task(t: dict) -> list[str]:
     return errors
 
 
+def _str_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
 def _check_test_sources(tasks: dict, acc_files: list[str], existing: list[str] = ()) -> list[str]:
     """Acceptance tests of code tasks must come from acceptance_files, an upstream test task or a test
     that is already committed and not written by that task."""
     errors = []
     frozen_by_test = {tid: [norm_path(w) for w in t.get("writes", [])]
-                      for tid, t in tasks.items() if t.get("kind") == "test"}
+                      for tid, t in tasks.items() if t.get("kind") == "test" and _str_list(t.get("writes"))}
     all_frozen = set(acc_files) | {p for ps in frozen_by_test.values() for p in ps}
     for tid, t in tasks.items():
-        if t.get("kind") != "code":
-            continue
+        if t.get("kind") != "code" or not _str_list(t.get("writes")) or not isinstance(t.get("acceptance"), list):
+            continue  # reported by _check_task
         for w in t.get("writes", []):
             if any(glob_match(f, w) for f in all_frozen):
                 errors.append(f"{tid}: writes overwrite a frozen test file ({w})")
@@ -379,7 +400,7 @@ def _check_test_sources(tasks: dict, acc_files: list[str], existing: list[str] =
         trusted = [e for e in existing if not any(glob_match(w, e) for w in own_writes)]
         sources = list(acc_files) + [p for a in anc for p in frozen_by_test.get(a, [])] + trusted
         for c in t.get("acceptance", []):
-            if c.get("type") != "command" or command_error(c.get("cmd")):
+            if not isinstance(c, dict) or c.get("type") != "command" or command_error(c.get("cmd")):
                 continue
             tkind, targets = test_targets(c["cmd"])
             if tkind not in ("module", "path"):
