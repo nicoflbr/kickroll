@@ -242,7 +242,13 @@ function usageBlock(w: number, run: RunStatus, y: number): { svg: string; height
     out += text(PAD + 15, ry, m, { size: 12, weight: 600 })
     out += text(w - PAD, ry, T.usageRow(u.calls, compact(u.tokens), duration(u.seconds)), { size: 12, fill: u.calls > 0 ? TEXT : DIM, anchor: 'end' })
   })
-  return { svg: out, height: 50 + 3 * 22 }
+  // Jev requests (routing, L2 check): not a Claude model, so no bar segment, only a row.
+  const j = run.jev ?? { calls: 0, errors: 0, seconds: 0 }
+  const jy = y + 50 + models.length * 22
+  out += `<circle cx="${PAD + 5}" cy="${jy - 4}" r="4" fill="${j.errors > 0 ? '#EF9F27' : '#F0997B'}"/>`
+  out += text(PAD + 15, jy, 'jev', { size: 12, weight: 600 })
+  out += text(w - PAD, jy, T.jevRow(j.calls, j.errors, duration(j.seconds)), { size: 12, fill: j.calls > 0 ? TEXT : DIM, anchor: 'end' })
+  return { svg: out, height: 50 + (models.length + 1) * 22 }
 }
 
 function routerBar(w: number, list: Decision[], y: number): string {

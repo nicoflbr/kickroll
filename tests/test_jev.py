@@ -30,6 +30,21 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(tier, "sonnet")
         self.assertIn("JevUnavailable", reason)
 
+    def test_on_call_reports_success_failure_and_duration(self):
+        calls = []
+        svc = JevService(FakeJev(), on_call=lambda ok, s: calls.append((ok, s)))
+        svc.route_task({"title": "x", "description": "y"})
+        down = JevService(FakeJev(down=True), on_call=lambda ok, s: calls.append((ok, s)))
+        down.route_task({"title": "x"})
+        self.assertEqual([ok for ok, _ in calls], [True, False])
+        self.assertTrue(all(s >= 0 for _, s in calls))
+
+    def test_no_jev_client_makes_no_count(self):
+        calls = []
+        svc = JevService(None, backend="heuristic", on_call=lambda ok, s: calls.append(ok))
+        svc.route_task({"title": "x", "description": "y"})
+        self.assertEqual(calls, [])
+
     def test_bypass(self):
         fake = FakeJev()
         svc = JevService(fake)

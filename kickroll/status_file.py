@@ -14,12 +14,14 @@ KINDS = ("code", "analysis", "review", "test")
 STEPS = ("ROUTE", "WORK", "L0", "L1", "L3", "COMMIT", "NONE")
 MODELS = ("haiku", "sonnet", "opus", "")
 
-_TOP_KEYS = {"version", "run_id", "status", "phase", "note", "updated", "started", "budgets", "usage", "tasks"}
+_TOP_KEYS = {"version", "run_id", "status", "phase", "note", "updated", "started", "budgets", "usage", "jev",
+             "tasks"}
 _TASK_KEYS = {"id", "title", "kind", "status", "step", "attempt", "max_attempts", "model", "depends_on",
               "failed_criteria"}
 _BUDGET_KEYS = {"calls", "opus", "planner", "minutes"}
 _USAGE_MODELS = ("haiku", "sonnet", "opus")
 _USAGE_KEYS = {"calls", "tokens", "seconds"}
+_JEV_KEYS = {"calls", "errors", "seconds"}
 
 # internal run states -> pane
 _RUN_MAP = {"PLANNING": "RUNNING", "EXECUTING": "RUNNING", "RUNNING": "RUNNING", "PAUSED": "PAUSED",
@@ -44,6 +46,7 @@ def build_status(run_state: dict) -> dict:
     budget = run_state.get("budget", {})
     limits = run_state.get("limits", {})
     by_model = budget.get("by_model", {}) if isinstance(budget.get("by_model"), dict) else {}
+    jev = budget.get("jev", {}) if isinstance(budget.get("jev"), dict) else {}
     plan_tasks = {t["id"]: t for t in run_state.get("plan", {}).get("tasks", []) if isinstance(t, dict) and "id" in t}
     tasks = []
     for tid, t in plan_tasks.items():
@@ -82,6 +85,8 @@ def build_status(run_state: dict) -> dict:
         "usage": {m: {"calls": _int(by_model.get(m, {}).get("calls")),
                       "tokens": _int(by_model.get(m, {}).get("tokens")),
                       "seconds": _int(by_model.get(m, {}).get("seconds"))} for m in _USAGE_MODELS},
+        "jev": {"calls": _int(jev.get("calls")), "errors": _int(jev.get("errors")),
+                "seconds": _int(jev.get("seconds"))},
         "tasks": tasks,
     }
     validate_status(status)
@@ -108,6 +113,8 @@ def validate_status(d: dict) -> None:
     for u in d["usage"].values():
         need(isinstance(u, dict) and set(u) == _USAGE_KEYS and all(isinstance(v, int) for v in u.values()),
              "usage entry")
+    need(isinstance(d["jev"], dict) and set(d["jev"]) == _JEV_KEYS and all(isinstance(v, int) for v in d["jev"].values()),
+         "jev")
     need(isinstance(d["tasks"], list), "tasks")
     for t in d["tasks"]:
         need(isinstance(t, dict) and set(t) == _TASK_KEYS, "task fields")

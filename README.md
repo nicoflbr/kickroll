@@ -127,7 +127,7 @@ The escalation ladder protects every backend against mis-routing.
 
 | Path | Purpose |
 | --- | --- |
-| `~/.kickroll` or `$KICKROLL_HOME` | `status.json` (for the desktop pane), `usage.json` (daily budget), `router_log.jsonl`, `runs/<id>/` (state, events, plan, report) |
+| `~/.kickroll` or `$KICKROLL_HOME` | `status.json` (for the desktop pane; includes per-model `usage` and the `jev` request counters), `usage.json` (daily budget), `router_log.jsonl`, `runs/<id>/` (state, events, plan, report) |
 | `kickroll.toml` in your repo | configuration, see `kickroll.example.toml` (unknown keys are an error) |
 | `docs/design.md` | design decisions and the reasoning behind them |
 | `mod/kickroll-panel` | Claude Desktop pane that shows a run live ([README](mod/kickroll-panel/README.md)) |

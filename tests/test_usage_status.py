@@ -50,6 +50,28 @@ class UsageStatusTest(unittest.TestCase):
         status = build_status({"run_id": "r2", "status": "RUNNING", "phase": "PREFLIGHT"})
         self.assertEqual(status["usage"]["opus"]["calls"], 0)
 
+    def test_jev_requests_are_counted_and_reported(self):
+        self.acct.record_jev(True, 0.4)
+        self.acct.record_jev(False, 8.0)
+        self.assertEqual(self.counters["jev"], {"calls": 2, "errors": 1, "seconds": 8.4})
+        status = build_status({"run_id": "r4", "status": "RUNNING", "phase": "EXECUTE",
+                               "budget": self.counters, "limits": {}, "plan": {"tasks": []}, "tasks": {}})
+        self.assertEqual(status["jev"], {"calls": 2, "errors": 1, "seconds": 8})
+        validate_status(status)
+
+    def test_jev_without_counters_reports_zeros(self):
+        status = build_status({"run_id": "r5", "status": "RUNNING", "phase": "PREFLIGHT"})
+        self.assertEqual(status["jev"], {"calls": 0, "errors": 0, "seconds": 0})
+
+    def test_invalid_jev_block_is_rejected(self):
+        status = build_status({"run_id": "r6", "status": "RUNNING", "phase": "PREFLIGHT"})
+        status["jev"]["calls"] = "many"
+        with self.assertRaises(ValueError):
+            validate_status(status)
+        del status["jev"]
+        with self.assertRaises(ValueError):
+            validate_status(status)
+
     def test_invalid_usage_is_rejected(self):
         status = build_status({"run_id": "r3", "status": "RUNNING", "phase": "PREFLIGHT"})
         status["usage"]["haiku"]["tokens"] = "many"

@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Budget, Decision, ModelUsage, RunStatus, TaskStatus } from '../types'
+import type { Budget, Decision, JevUsage, ModelUsage, RunStatus, TaskStatus } from '../types'
 import { messages } from './i18n'
 import { dashboard } from './svg'
 
@@ -51,7 +51,7 @@ const decisions = atom(
   { shape: 'decisions-1' },
 )
 const run = atom({ plugin: 'kickroll-panel', key: 'run' } as const, null, {
-  shape: 'run-2',
+  shape: 'run-3',
 })
 
 let lastLogKey = ''
@@ -104,6 +104,12 @@ function parseRun(text: string): RunStatus | null {
         seconds: Number(u?.seconds ?? 0),
       }
     }
+    // Older status files have no "jev" block: show zeros.
+    const jev: JevUsage = {
+      calls: Number(raw.jev?.calls ?? 0),
+      errors: Number(raw.jev?.errors ?? 0),
+      seconds: Number(raw.jev?.seconds ?? 0),
+    }
     const tasks: TaskStatus[] = raw.tasks.map((t: Record<string, unknown>) => ({
       id: String(t.id ?? '?'),
       title: String(t.title ?? ''),
@@ -125,6 +131,7 @@ function parseRun(text: string): RunStatus | null {
       started: String(raw.started ?? ''),
       budgets,
       usage,
+      jev,
       tasks,
     }
   } catch {
@@ -366,6 +373,9 @@ export const register: Register = on => {
             <Box flexDirection="column">
               {current.tasks.map(taskRow)}
             </Box>
+            <Text dimColor={current.jev.calls === 0}>
+              {`jev  ${T.jevRow(current.jev.calls, current.jev.errors, `${current.jev.seconds} s`)}`}
+            </Text>
             <Box flexDirection="column">
               {Object.keys(current.budgets).map(key => {
                 const b = current.budgets[key]

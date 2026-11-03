@@ -3,6 +3,7 @@
 Jev is never the sole pass. Before every send: secret redaction + path shortening. Errors -> fallback sonnet / "unsure".
 """
 import threading
+import time
 from dataclasses import dataclass, field
 
 from .routing import heuristic_bypass, heuristic_route, planner_route
@@ -224,16 +225,24 @@ class JevService:
     """
 
     def __init__(self, client, roots: list[str] | None = None, send_diffs: bool = False, diff_chars: int = 6000,
-                 backend: str = "jev", bypass_decider=None):
+                 backend: str = "jev", bypass_decider=None, on_call=None):
         self.client = client
         self.roots = roots or []
         self.send_diffs = send_diffs
         self.diff_chars = diff_chars
         self.backend = backend if client is not None or backend != "jev" else "planner"
         self.bypass_decider = bypass_decider
+        self.on_call = on_call  # callable(ok: bool, seconds: float), set by the engine for the status pane
 
     def _ask(self, kind: str, state: str, questions: dict) -> dict:
-        return self.client.ask(redact(state, self.roots), questions, kind=kind)
+        started, ok = time.monotonic(), False
+        try:
+            answers = self.client.ask(redact(state, self.roots), questions, kind=kind)
+            ok = True
+            return answers
+        finally:
+            if self.on_call is not None:
+                self.on_call(ok, time.monotonic() - started)
 
     def bypass(self, goal: str, has_test_command: bool, min_subtasks: float = 1.5) -> BypassDecision:
         source, jev_ok = "heuristic", False

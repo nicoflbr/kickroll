@@ -9,7 +9,7 @@ It only reads two files that kickroll writes, so it works with any kickroll run:
 
 | File | Content |
 | --- | --- |
-| `<data dir>/status.json` | run, phase, tasks, budgets, usage (no prompts, no diffs) |
+| `<data dir>/status.json` | run, phase, tasks, budgets, usage, jev request counters (no prompts, no diffs) |
 | `<data dir>/router_log.jsonl` | router decisions (prompt hashes only) |
 
 The data directory is `$KICKROLL_HOME` or `~/.kickroll`.

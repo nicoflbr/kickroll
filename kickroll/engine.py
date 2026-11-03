@@ -61,6 +61,7 @@ class Orchestrator:
                 raise FileNotFoundError(f"No state for run {run_id}")
         self.acct = Accountant(cfg, self.state["budget"], DailyUsage(Path(cfg.usage_path), cfg.daily_max_calls,
                                                                       cfg.daily_max_weighted), self.lock)
+        self.jev.on_call = self.acct.record_jev
         self.state["limits"] = {k: v for k, v in self.acct.limits().items()}
         self._run_lock = FileLock(self.run_dir / "run.lock")
 

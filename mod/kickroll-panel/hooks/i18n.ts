@@ -15,6 +15,7 @@ export type Messages = {
   router: (n: number) => string
   usage: string
   usageRow: (calls: number, tokens: string, seconds: string) => string
+  jevRow: (calls: number, errors: number, seconds: string) => string
   paneTitle: string
   commandDescription: string
   paneOpened: string
@@ -43,6 +44,7 @@ const en: Messages = {
   router: n => `Router choices · ${n} decisions`,
   usage: 'Actual usage in this run',
   usageRow: (calls, tokens, seconds) => `${calls} ${calls === 1 ? 'call' : 'calls'} · ${tokens} tokens · ${seconds}`,
+  jevRow: (calls, errors, seconds) => `${calls} ${calls === 1 ? 'request' : 'requests'} · ${errors} ${errors === 1 ? 'error' : 'errors'} · ${seconds}`,
   paneTitle: 'kickroll',
   commandDescription: 'Show the kickroll loop and router decisions in a pane',
   paneOpened: 'kickroll pane opened.',
@@ -71,6 +73,7 @@ const de: Messages = {
   router: n => `Router-Wahl · ${n} Entscheidungen`,
   usage: 'Tatsächliche Nutzung in diesem Lauf',
   usageRow: (calls, tokens, seconds) => `${calls} ${calls === 1 ? 'Aufruf' : 'Aufrufe'} · ${tokens} Tokens · ${seconds}`,
+  jevRow: (calls, errors, seconds) => `${calls} ${calls === 1 ? 'Anfrage' : 'Anfragen'} · ${errors} Fehler · ${seconds}`,
   paneTitle: 'kickroll',
   commandDescription: 'kickroll-Loop und Router-Entscheidungen in einem Pane zeigen',
   paneOpened: 'kickroll-Pane geöffnet.',

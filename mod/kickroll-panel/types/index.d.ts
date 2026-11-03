@@ -26,6 +26,8 @@ export type TaskStatus = {
 
 export type ModelUsage = { calls: number; tokens: number; seconds: number }
 
+export type JevUsage = { calls: number; errors: number; seconds: number }
+
 export type RunStatus = {
   runId: string
   status: string
@@ -35,6 +37,7 @@ export type RunStatus = {
   started: string
   budgets: Record<string, Budget>
   usage: Record<string, ModelUsage>
+  jev: JevUsage
   tasks: TaskStatus[]
 }
 

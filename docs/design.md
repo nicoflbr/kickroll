@@ -44,6 +44,7 @@ One Jev request per task: `task` (Choice), `complexity` (Score 0..2), `simplicit
 - `state.json` is atomic (tmp + `flush` + `os.fsync` + `os.replace` with retry/backoff against Windows PermissionError), write access under a lock. Stored: task status, attempts, budget counters, consumed wall clock, PIDs, base/integration commit.
 - `resume`: takes over the consumed budgets; checks "task already committed?" via `git log --grep "Kickroll-Task: <run>/<task>:<attempt>"` (not via the state).
 - Budgets per run (start): 25 calls (workers + reviewers), of which max. 3 Opus, 60 min; the planner separately via `planner_calls` (default max. 2, does not count towards calls/Opus). Additionally a daily budget in `%USERPROFILE%\.kickroll\usage.json`; before every call, usage + the expected call are checked. Ctrl+C ends all workers cleanly and saves.
+- Status pane: `status.json` (version 1) has a top-level `jev` block `{calls, errors, seconds}`: Jev requests of the run (routing, L2 check; the bypass question happens before the run and is not included). Counted in `Accountant.record_jev` (state `budget.jev`, survives resume), not a Claude call and not against any budget. The block was added without a version bump because readers ignore unknown fields (the pane shows zeros when it is missing); `validate_status` requires it.
 - Clean-up: `kickroll clean <run_id>` removes worktree/branch (branch only on request).
 
 ## 7. Measuring

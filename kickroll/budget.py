@@ -20,6 +20,7 @@ class Accountant:
         for k in COUNTER_KEYS:
             self.c.setdefault(k, 0)
         self.c.setdefault("by_model", {})  # tier -> {"calls", "tokens", "seconds"} for the status pane
+        self.c.setdefault("jev", {"calls": 0, "errors": 0, "seconds": 0.0})  # Jev requests; no Claude budget
         self.usage = usage
         self.lock = lock or threading.RLock()
         self._tick_start = time.monotonic()
@@ -77,6 +78,14 @@ class Accountant:
             m = self._model(tier)
             m["tokens"] += tokens
             m["seconds"] = round(m["seconds"] + float(getattr(res, "duration_s", 0.0) or 0.0), 2)
+
+    def record_jev(self, ok: bool, seconds: float) -> None:
+        """One Jev request (answered or failed). Counts for the status pane only, not against any budget."""
+        with self.lock:
+            j = self.c["jev"]
+            j["calls"] += 1
+            j["errors"] += 0 if ok else 1
+            j["seconds"] = round(j["seconds"] + max(0.0, seconds), 3)
 
     def record(self, role: str, tier: str) -> None:
         with self.lock:
