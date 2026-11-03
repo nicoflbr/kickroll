@@ -10,7 +10,7 @@ Escalates like a kickroll: faster, harder, until it drops.
 It runs on your Claude subscription through Claude Code's print mode. **No Anthropic API key is
 needed or used.** A [Jev](https://docs.typesafe.ai) (TypeSafe AI) key is optional.
 
-> **Status: v0.1, experimental.** The loop works end to end (see [Live test](#live-test)), but the
+> **Status: v0.2, experimental.** The loop works end to end (see [Live test](#live-test)), but the
 > claim "cheaper, faster or better than one direct call" is **not measured yet**. A `bench` command
 > exists to measure it; please treat savings as a hypothesis until you have run it on your own tasks.
 
@@ -36,12 +36,14 @@ task ──► preflight ──► bypass? ──► planner ──► you appro
   that changes them fails immediately. A task's own worker never writes the tests that accept it.
 - **Check cascade.** L0 structure (changed paths, forbidden files, frozen hashes), L1 your test
   command (only *new* failures count against a task), L3 an independent review by another tier when a
-  judgement criterion needs it. Jev, if enabled, is only a shadow filter and never accepts on its own.
+  judgement criterion needs it. Jev, if enabled, is only a filter and never accepts on its own; when it
+  only has the worker's report to go on, it sends the work to the L3 review instead of rejecting it.
 - **Loop engineering.** Attempt 1 on the routed tier, attempt 2 with feedback, attempt 3 one tier
   higher, a fourth on Opus for high-risk tasks. Identical failed criteria in two attempts escalate
   immediately. Timeouts, rate limits and login problems **pause** the run and never count as an attempt.
 - **Budgets.** Per run (calls, Opus calls, planner calls, reviewer calls, minutes) and per day.
-  `resume` keeps the counters.
+  `resume` keeps the counters. When other tasks' retries used up the Opus calls, a task due on Opus
+  gets one more go on Sonnet instead of failing without a run.
 - **Safe landing.** Work happens on a `kickroll/<run id>` branch in its own worktree. Your branch is
   never touched; you merge with one command at the end.
 
@@ -92,7 +94,9 @@ At the prompt of a terminal session:
 
 From a shell: `claude plugin install kickroll --marketplace nicoflbr/kickroll`. In the desktop app,
 where `/plugin` does not run: click **+** next to the prompt box, then Plugins, Add marketplace with
-`nicoflbr/kickroll`, then Add plugin. Optionally also install `kickroll-panel` (see below) to watch a run live.
+`nicoflbr/kickroll`, then Add plugin. Optionally also install `kickroll-panel` (see below) to watch runs live:
+one tab per run or skill bypass, so several sessions and repositories can run at the same time (only two
+runs in the same repository are refused).
 
 The skill finds the Python package relative to itself, so `pip install` is not required for this route.
 Then simply say, in a git repository of your own: *"Use kickroll to add X, with tests"*.
@@ -128,9 +132,9 @@ The escalation ladder protects every backend against mis-routing.
 | Path | Purpose |
 | --- | --- |
 | `~/.kickroll` or `$KICKROLL_HOME` | `status/<run id>.json` and `status/bypass-<session>.json` (one entry per run or skill bypass for the desktop pane, so parallel runs and sessions never overwrite each other; includes per-model `usage` and the `jev` request counters), `status/pid-<pid>.beat.json` (rewritten every 5 s while a kickroll command runs, so the pane can tell a dead run from a live one; removed when it ends), `status.json` and `heartbeat.json` (the last entry again in the old format, for panes before 0.2.0), `usage.json` (daily budget), `router_log.jsonl` (written by the optional prompt router in `examples/router`, not by runs), `runs/<id>/` (state, events, plan, report) |
-| `kickroll.toml` in your repo | configuration, see `kickroll.example.toml` (unknown keys are an error) |
+| `kickroll.toml` in your repo | configuration, see `kickroll.example.toml` (unknown keys, wrong types and out-of-range values are an error that names the key) |
 | `docs/design.md` | design decisions and the reasoning behind them |
-| `mod/kickroll-panel` | Claude Desktop pane that shows a run live ([README](mod/kickroll-panel/README.md)) |
+| `mod/kickroll-panel` | Claude Desktop pane that shows runs live, one tab per run or bypass ([README](mod/kickroll-panel/README.md)) |
 | `examples/router` | the original stand-alone router and a Claude Code hook (see its caveats below) |
 
 ## Live test
@@ -142,6 +146,12 @@ a real reason the unit tests could not show (an uncalibrated Jev shadow value re
 whose tests were green), which is why Jev may only filter and thresholds sit at 0.7.
 That task is small enough that a direct call would have been cheaper, which is the point of the
 bypass and the benchmark.
+
+A second live run pointed kickroll at its own repository ("review the project and fix what you find";
+five tasks, 7 worker calls, 12.5 minutes). It ended PARTIAL with nothing accepted, and every cause was a
+kickroll defect, fixed in 0.2.0: a planned test command that could never import (`tests/` was not a
+package), Jev rejecting three attempts whose tests all passed because it only saw the worker's report,
+and retries using up the Opus budget so that the analysis task never ran.
 
 ## Examples: the stand-alone router
 
@@ -155,7 +165,8 @@ starting each worker with `--model` itself.
 
 - Tested on Windows only; Linux and macOS code paths exist (process groups, XDG paths) but are untested.
 - Not sandboxed (see the warning above). Run it in a disposable checkout if in doubt.
-- Jev's shadow verification (L2) does not decide yet; thresholds are not calibrated.
+- Jev's verification (L2) never accepts on its own; it can reject a clearly missed judgement criterion
+  (only when diffs are sent) or send work to review. Its thresholds are not calibrated.
 - Workers run sequentially for writing tasks; only read-only tasks run in parallel.
 - `bench` is a scaffold: it records calls, time and test results for "direct" versus "kickroll" but
   has no false-accept sampling yet.
@@ -165,6 +176,8 @@ starting each worker with `--model` itself.
 
 ```bash
 python -m unittest discover -s tests     # about 75 s, no network, no claude calls
+claude plugin test mod/kickroll-panel     # the pane: parsing, tab order, switching tabs
+claude plugin validate mod/kickroll-panel
 ```
 
 Tests use fake runners and a fake Jev client; the end-to-end behaviour above was checked live once.
