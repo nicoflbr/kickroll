@@ -534,10 +534,19 @@ class Orchestrator:
     def _write_report(self, status: str) -> None:
         lines = [f"# Run {self.run_id}: {status}", "",
                  f"Integration branch: `{self.state['branch']}` (worktree `{self.state['worktree']}`)", "",
-                 "| Task | Title | Status | Attempts | Model | Verdict |", "|---|---|---|---|---|---|"]
+                 "| Task | Title | Status | Attempts | Model | Reason | Verdict |", "|---|---|---|---|---|---|---|"]
         for tid, t in self.tasks.items():
             ts = self.state["tasks"][tid]
-            lines.append(f"| {tid} | {t['title'][:60]} | {ts['status']} | {ts['attempt']} | {ts['tier']} | [ok]/[wrong] |")
+            lines.append(f"| {tid} | {t['title'][:60]} | {ts['status']} | {ts['attempt']} | {ts['tier']} "
+                         f"| {ts.get('reason') or '-'} | [ok]/[wrong] |")
+        budget = self.state["budget"]
+        lines += ["", "Verdict: fill in by hand for the false-accept sample.", "", "## Usage", "",
+                  "| Model | Calls | Tokens | Seconds |", "|---|---|---|---|"]
+        for m, u in budget.get("by_model", {}).items():
+            lines.append(f"| {m} | {u.get('calls', 0)} | {u.get('tokens', 0)} | {u.get('seconds', 0)} |")
+        jev = budget.get("jev", {})
+        if jev.get("calls"):
+            lines.append(f"| jev | {jev['calls']} ({jev.get('errors', 0)} errors) | - | {jev.get('seconds', 0)} |")
         lines += ["", "Take over (from its own branch):", "",
                   f"    git merge --ff-only {self.state['branch']}", "",
                   f"Clean up: kickroll clean {self.run_id}"]

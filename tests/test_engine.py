@@ -78,7 +78,9 @@ class HappyPathTest(EngineCase):
         events = (o.run_dir / "events.jsonl").read_text(encoding="utf-8")
         self.assertNotIn("implement add() correctly", events)
         self.assertNotIn("Acceptance criteria", events)
-        self.assertTrue((o.run_dir / "report.md").is_file())
+        report = (o.run_dir / "report.md").read_text(encoding="utf-8")
+        self.assertIn("## Usage", report)
+        self.assertNotIn("implement add() correctly", report)
 
     def test_new_untracked_file_in_writes_and_pycache_ignored(self):
         t = code_task(writes=["pkg/calc.py", "pkg/helper.py"])

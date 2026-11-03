@@ -33,16 +33,26 @@ class Outcome:
 
 # ---------- Worker report ----------
 
-def extract_report(text: str) -> dict | None:
-    """Find the last JSON block with status/summary/files_changed (the report is data)."""
-    candidates = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text or "", re.S)
-    candidates += re.findall(r"(\{[^{}]*\"status\"[^{}]*\})", text or "", re.S)
-    for raw in reversed(candidates):
+def json_objects(text: str) -> list[dict]:
+    """All top-level JSON objects in the text, in order. Braces inside strings and nesting are handled."""
+    decoder, out, i = json.JSONDecoder(), [], 0
+    text = text or ""
+    while (i := text.find("{", i)) != -1:
         try:
-            data = json.loads(raw)
+            data, end = decoder.raw_decode(text, i)
         except ValueError:
+            i += 1
             continue
-        if isinstance(data, dict) and {"status", "summary", "files_changed"} <= set(data):
+        if isinstance(data, dict):
+            out.append(data)
+        i = end
+    return out
+
+
+def extract_report(text: str) -> dict | None:
+    """Find the last JSON object with status/summary/files_changed (the report is data)."""
+    for data in reversed(json_objects(text)):
+        if {"status", "summary", "files_changed"} <= set(data):
             if isinstance(data["status"], str) and isinstance(data["summary"], str):
                 return data
     return None
@@ -224,12 +234,8 @@ def parse_review(text: str, structured: dict | None, ids: list[str]) -> tuple[bo
     """Reviewer reply strictly: {"<id>": "pass|fail", ..., "reason": "..."}; anything else counts as fail."""
     data = structured
     if data is None:
-        for raw in reversed(re.findall(r"\{.*?\}", text or "", re.S)):
-            try:
-                data = json.loads(raw)
-                break
-            except ValueError:
-                continue
+        found = json_objects(text)
+        data = found[-1] if found else None
     if not isinstance(data, dict):
         return False, list(ids)
     failed = [i for i in ids if str(data.get(i, "")).strip().lower() != "pass"]
