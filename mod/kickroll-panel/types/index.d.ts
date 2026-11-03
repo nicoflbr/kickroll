@@ -30,7 +30,8 @@ export type JevUsage = { calls: number; errors: number; seconds: number }
 
 export type RunStatus = {
   runId: string
-  status: string
+  pid: number // writer process; 0 in status files before 0.1.2
+  status: string // STALE when RUNNING but no live heartbeat
   phase: string
   note: string
   updated: string

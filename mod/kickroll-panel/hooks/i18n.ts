@@ -20,6 +20,7 @@ export type Messages = {
   commandDescription: string
   paneOpened: string
   noDecisions: string
+  stale: string
 }
 
 const en: Messages = {
@@ -41,7 +42,7 @@ const en: Messages = {
   criteriaOpen: n => `${n} ${n === 1 ? 'criterion' : 'criteria'} open`,
   retry: (n, max) => `↻ Retry ${n}/${max}: feedback, then a higher tier`,
   retryIdle: '↻ on failure: retry with feedback',
-  router: n => `Router choices · ${n} decisions`,
+  router: n => `Prompt router (all sessions, not this run) · ${n} decisions`,
   usage: 'Actual usage in this run',
   usageRow: (calls, tokens, seconds) => `${calls} ${calls === 1 ? 'call' : 'calls'} · ${tokens} tokens · ${seconds}`,
   jevRow: (calls, errors, seconds) => `${calls} ${calls === 1 ? 'request' : 'requests'} · ${errors} ${errors === 1 ? 'error' : 'errors'} · ${seconds}`,
@@ -49,6 +50,7 @@ const en: Messages = {
   commandDescription: 'Show the kickroll loop and router decisions in a pane',
   paneOpened: 'kickroll pane opened.',
   noDecisions: 'No entries in router_log.jsonl yet.',
+  stale: 'No kickroll process: last state, not live',
 }
 
 const de: Messages = {
@@ -70,7 +72,7 @@ const de: Messages = {
   criteriaOpen: n => `${n} Kriterium offen`,
   retry: (n, max) => `↻ Retry ${n}/${max}: Feedback, dann höhere Stufe`,
   retryIdle: '↻ bei Fehler: Retry mit Feedback',
-  router: n => `Router-Wahl · ${n} Entscheidungen`,
+  router: n => `Prompt-Router (alle Sessions, nicht dieser Lauf) · ${n} Entscheidungen`,
   usage: 'Tatsächliche Nutzung in diesem Lauf',
   usageRow: (calls, tokens, seconds) => `${calls} ${calls === 1 ? 'Aufruf' : 'Aufrufe'} · ${tokens} Tokens · ${seconds}`,
   jevRow: (calls, errors, seconds) => `${calls} ${calls === 1 ? 'Anfrage' : 'Anfragen'} · ${errors} Fehler · ${seconds}`,
@@ -78,6 +80,7 @@ const de: Messages = {
   commandDescription: 'kickroll-Loop und Router-Entscheidungen in einem Pane zeigen',
   paneOpened: 'kickroll-Pane geöffnet.',
   noDecisions: 'Noch keine Einträge in router_log.jsonl.',
+  stale: 'Kein kickroll-Prozess: letzter Stand, nicht live',
 }
 
 export function messages(lang: string | undefined): Messages {

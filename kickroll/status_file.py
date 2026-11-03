@@ -2,10 +2,14 @@
 
 Small fixed interface: only IDs, counters, enums, short titles. No prompts, diffs, error output, secrets.
 Written atomically on every status change and never deleted; state.json stays separate.
+`pid` names the writing process; while it lives it also beats <data dir>/heartbeat.json, so the pane can tell a
+dead run from a live one (a RUNNING status.json without a matching, moving heartbeat is stale).
 """
+import os
+import threading
 from pathlib import Path
 
-from .store import atomic_write_json, now_iso
+from .store import atomic_write_json, now_iso, read_json
 
 RUN_STATUS = ("RUNNING", "PAUSED", "SUCCESS", "PARTIAL", "FAILED")
 PHASES = ("PREFLIGHT", "BYPASS", "PLAN", "APPROVAL", "EXECUTE", "DONE")
@@ -14,8 +18,8 @@ KINDS = ("code", "analysis", "review", "test")
 STEPS = ("ROUTE", "WORK", "L0", "L1", "L3", "COMMIT", "NONE")
 MODELS = ("haiku", "sonnet", "opus", "")
 
-_TOP_KEYS = {"version", "run_id", "status", "phase", "note", "updated", "started", "budgets", "usage", "jev",
-             "tasks"}
+_TOP_KEYS = {"version", "run_id", "pid", "status", "phase", "note", "updated", "started", "budgets", "usage",
+             "jev", "tasks"}
 _TASK_KEYS = {"id", "title", "kind", "status", "step", "attempt", "max_attempts", "model", "depends_on",
               "failed_criteria"}
 _BUDGET_KEYS = {"calls", "opus", "planner", "minutes"}
@@ -71,6 +75,7 @@ def build_status(run_state: dict) -> dict:
     status = {
         "version": 1,
         "run_id": _cut(run_state.get("run_id"), 40),
+        "pid": os.getpid(),
         "status": _RUN_MAP.get(run_state.get("status", "RUNNING"), "RUNNING"),
         "phase": run_state.get("phase") if run_state.get("phase") in PHASES else "PREFLIGHT",
         "note": _cut(run_state.get("note"), 80),
@@ -101,6 +106,7 @@ def validate_status(d: dict) -> None:
 
     need(isinstance(d, dict) and set(d) == _TOP_KEYS, "top-level fields")
     need(d["version"] == 1, "version")
+    need(isinstance(d["pid"], int) and d["pid"] >= 0, "pid")
     need(d["status"] in RUN_STATUS, "status")
     need(d["phase"] in PHASES, "phase")
     need(isinstance(d["note"], str) and len(d["note"]) <= 80, "note")
@@ -127,3 +133,48 @@ def validate_status(d: dict) -> None:
 def write_status(path: Path, status: dict) -> None:
     validate_status(status)
     atomic_write_json(Path(path), status)
+
+
+def mark_ended(path: Path, note: str) -> bool:
+    """Process exit: a status.json this process left at RUNNING becomes FAILED with `note`. -> changed?"""
+    d = read_json(Path(path))
+    if not isinstance(d, dict) or d.get("status") != "RUNNING" or d.get("pid") != os.getpid():
+        return False
+    d.update(status="FAILED", note=note[:80], updated=now_iso())
+    try:
+        write_status(Path(path), d)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+class Heartbeat:
+    """Daemon thread: rewrites heartbeat.json ({pid, beat, ts}) every `every_s` seconds while the process runs."""
+
+    def __init__(self, path: Path, every_s: float = 5.0):
+        self.path = Path(path)
+        self.every_s = every_s
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name="kickroll-heartbeat", daemon=True)
+        self.beats = 0
+
+    def _beat(self) -> None:
+        self.beats += 1
+        try:
+            atomic_write_json(self.path, {"pid": os.getpid(), "beat": self.beats, "ts": now_iso()})
+        except OSError:
+            pass  # the pane then reports the run as stale; never fail the run for it
+
+    def _loop(self) -> None:
+        while True:
+            self._beat()
+            if self._stop.wait(self.every_s):
+                return
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)

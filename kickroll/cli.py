@@ -27,7 +27,7 @@ from kickroll.plan import command_error, normalize_plan, tracked_files, validate
 from kickroll.planner import PlanError, create_plan, new_run_id, planner_tier
 from kickroll.routing import HaikuDecider, resolve_backend
 from kickroll.runner import ClaudeCall, ClaudeNotFound, ClaudeRunner, ErrorClass, FakeRunner
-from kickroll.status_file import build_status, write_status
+from kickroll.status_file import Heartbeat, build_status, mark_ended, write_status
 from kickroll.store import DailyUsage, atomic_write_json, now_iso, read_json
 from kickroll.verify import PreflightError, resolve_python, run_checks
 
@@ -406,6 +406,22 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def run_with_heartbeat(handler, args, cfg, repo: Path) -> int:
+    """Beat heartbeat.json while the command runs; whatever ends it, never leave the pane at RUNNING."""
+    note = msg.NOTE_ENDED
+    try:
+        with Heartbeat(Path(cfg.status_path).with_name("heartbeat.json")):
+            return handler(args, cfg, repo)
+    except KeyboardInterrupt:
+        note = msg.NOTE_ABORTED.format(error="interrupted")
+        raise
+    except BaseException as exc:
+        note = msg.NOTE_ABORTED.format(error=type(exc).__name__)
+        raise
+    finally:
+        mark_ended(Path(cfg.status_path), note)
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     print(WARNING, file=sys.stderr)
@@ -414,7 +430,9 @@ def main(argv=None) -> int:
         cfg = load_config(Path(args.config) if args.config else repo / "kickroll.toml")
         handler = {"plan": cmd_plan, "run": cmd_run, "resume": cmd_resume, "status": cmd_status,
                    "clean": cmd_clean, "bench": cmd_bench}[args.cmd]
-        return handler(args, cfg, repo)
+        if args.cmd in ("status", "clean"):
+            return handler(args, cfg, repo)
+        return run_with_heartbeat(handler, args, cfg, repo)
     except (PreflightError, ConfigError, ClaudeNotFound) as exc:
         say(f"Error: {exc}")
         return EXIT_USAGE

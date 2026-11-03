@@ -30,6 +30,7 @@ const RUN: Record<string, string> = {
   SUCCESS: TEAL,
   PARTIAL: AMBER,
   FAILED: RED,
+  STALE: MUTE,
 }
 const TASK: Record<string, string> = {
   RUNNING: GREEN,

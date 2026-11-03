@@ -1,6 +1,6 @@
 {
   "name": "kickroll",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Start kickroll from the chat: plan, approve, run cost-aware Claude workers with test-driven retries, verify, then merge on your yes.",
   "license": "MIT",
   "keywords": ["claude-code", "orchestrator", "subagents", "testing"]

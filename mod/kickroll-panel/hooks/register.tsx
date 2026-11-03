@@ -9,6 +9,8 @@ const PANE = 'kickroll'
 const COMMAND = 'kickroll-panel'
 const POLL_MS = 1500
 const KEEP = 200
+// heartbeat.json is rewritten every 5 s; this many polls without a new beat (30 s) means the run is dead.
+const STALE_POLLS = 20
 
 const PHASES = ['PREFLIGHT', 'BYPASS', 'PLAN', 'APPROVAL', 'EXECUTE', 'DONE']
 const STEPS = ['ROUTE', 'WORK', 'L0', 'L1', 'L3', 'COMMIT']
@@ -23,6 +25,7 @@ const RUN_COLOR: Record<string, string> = {
   SUCCESS: '#5DCAA5',
   PARTIAL: '#EF9F27',
   FAILED: '#F09595',
+  STALE: '#888780',
 }
 const TASK_GLYPH: Record<string, string> = {
   PENDING: '○',
@@ -52,11 +55,14 @@ const decisions = atom(
   { shape: 'decisions-1' },
 )
 const run = atom({ plugin: 'kickroll-panel', key: 'run' } as const, null, {
-  shape: 'run-3',
+  shape: 'run-4',
 })
 
 let lastLogKey = ''
 let lastRunRaw = ''
+let lastBeatRaw = ''
+let beatIdle = 0
+let lastStale = false
 
 // One log line -> decision; malformed lines are skipped.
 function parseDecision(line: string): Decision | undefined {
@@ -125,6 +131,7 @@ function parseRun(text: string): RunStatus | null {
     }))
     return {
       runId: String(raw.run_id ?? ''),
+      pid: Number(raw.pid ?? 0),
       status: String(raw.status ?? 'RUNNING'),
       phase: String(raw.phase ?? 'EXECUTE'),
       note: String(raw.note ?? ''),
@@ -137,6 +144,14 @@ function parseRun(text: string): RunStatus | null {
     }
   } catch {
     return null
+  }
+}
+
+function beatPidOf(text: string): number {
+  try {
+    return Number(JSON.parse(text).pid ?? -1)
+  } catch {
+    return -1
   }
 }
 
@@ -175,13 +190,34 @@ async function refresh($: EngineInterface) {
   } catch {
     raw = ''
   }
-  if (raw !== lastRunRaw) {
+  let beat = ''
+  try {
+    beat = await $.fs.read(`${dir}/heartbeat.json`)
+  } catch {
+    beat = ''
+  }
+  if (beat !== lastBeatRaw) {
+    lastBeatRaw = beat
+    beatIdle = 0
+  } else {
+    beatIdle++
+  }
+  const beatPid = beatPidOf(beat)
+
+  // RUNNING only counts while the writing process still beats; otherwise the file is a leftover.
+  const parsedNow = raw ? parseRun(raw) : null
+  const stale =
+    parsedNow?.status === 'RUNNING' &&
+    (!beat || beatPid !== parsedNow.pid || beatIdle >= STALE_POLLS)
+  if (raw !== lastRunRaw || stale !== lastStale) {
     lastRunRaw = raw
-    const parsed = raw ? parseRun(raw) : null
-    await update($, run, () => parsed)
+    lastStale = stale
+    const T = messages(await $.env.get('KICKROLL_LANG'))
+    const shown = parsedNow && stale ? { ...parsedNow, status: 'STALE', note: T.stale } : parsedNow
+    await update($, run, () => shown)
   }
 
-  const current = lastRunRaw ? parseRun(lastRunRaw) : null
+  const current = stale ? null : parsedNow
   const active = current?.tasks.find(t => t.status === 'RUNNING')
   if (current && current.status === 'RUNNING' && active) {
     $.ui.status(
