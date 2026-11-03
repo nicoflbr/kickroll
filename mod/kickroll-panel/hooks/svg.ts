@@ -31,6 +31,7 @@ const RUN: Record<string, string> = {
   PARTIAL: AMBER,
   FAILED: RED,
   STALE: MUTE,
+  BYPASSED: BLUE,
 }
 const TASK: Record<string, string> = {
   RUNNING: GREEN,
@@ -47,6 +48,25 @@ let T: Messages = messages(undefined) // active language, set by dashboard()
 const BUDGET_KEYS = ['calls', 'opus', 'planner', 'minutes']
 const FONT = "font-family=\"'Segoe UI', system-ui, -apple-system, sans-serif\""
 const PAD = 20
+
+// Status timestamps are UTC ISO strings; show them in the viewer's local time.
+export function clock(ts: string, seconds: boolean): string {
+  const t = new Date(ts)
+  if (isNaN(t.getTime())) return ts.slice(11, seconds ? 19 : 16)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const hm = `${pad(t.getHours())}:${pad(t.getMinutes())}`
+  return seconds ? `${hm}:${pad(t.getSeconds())}` : hm
+}
+
+// A dead run (STALE) or a task the chat handled itself (BYPASSED): nothing live to show, only one summary line.
+export function idleRun(run: RunStatus | null): boolean {
+  return !!run && (run.status === 'STALE' || run.status === 'BYPASSED')
+}
+
+export function idleLine(run: RunStatus, M: Messages): string {
+  if (run.status === 'BYPASSED') return run.note
+  return M.staleLine(run.runId, M.phases[PHASES.indexOf(run.phase)] ?? run.phase)
+}
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -293,7 +313,17 @@ export function dashboard(
 
   const color = run ? (RUN[run.status] ?? GREEN) : MUTE
   body += text(PAD, 36, T.title, { size: 19, weight: 600 })
-  if (run) {
+  const idle = idleRun(run)
+  if (run && idle) {
+    const label = run.status
+    const pw = 14 + label.length * 8
+    body += pill(w - PAD - pw, 20, pw, label, color)
+    body += text(PAD, 60, clip(idleLine(run, T), Math.floor((w - 2 * PAD) / 6.4)), { size: 12, fill: TEXT })
+    body += text(PAD, 78, T.at(clock(run.updated, false)), { size: 11, fill: DIM })
+    y = 96
+    body += rule(w, y)
+    y += 16
+  } else if (run) {
     const label = run.status
     const pw = 14 + label.length * 8
     body += pill(w - PAD - pw, 20, pw, label, color)
@@ -311,7 +341,7 @@ export function dashboard(
     y = 90
   }
 
-  if (run) {
+  if (run && !idle) {
     const active = run.tasks.find(t => t.status === 'RUNNING')
     const focus = active ?? run.tasks[run.tasks.length - 1]
     if (focus) {
@@ -350,7 +380,9 @@ export function dashboard(
   const source =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${y}" viewBox="0 0 ${w} ${y}">` +
     `<rect width="${w}" height="${y}" rx="14" fill="${BG}"/>${body}</svg>`
-  const summary = run
+  const summary = run && idle
+    ? `${run.status}: ${idleLine(run, T)}`
+    : run
     ? `${T.run(run.runId)}, ${run.status}, ${run.phase}, ${run.tasks.length} tasks`
     : T.noRun
   return { source, alt: `${T.title}: ${summary}`, width: w, height: y }

@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Budget, Decision, JevUsage, ModelUsage, RunStatus, TaskStatus } from '../types'
 import { messages } from './i18n'
-import { dashboard } from './svg'
+import { clock, dashboard, idleLine, idleRun } from './svg'
 
 const PANE = 'kickroll'
 const COMMAND = 'kickroll-panel'
@@ -26,6 +26,7 @@ const RUN_COLOR: Record<string, string> = {
   PARTIAL: '#EF9F27',
   FAILED: '#F09595',
   STALE: '#888780',
+  BYPASSED: '#85B7EB',
 }
 const TASK_GLYPH: Record<string, string> = {
   PENDING: '○',
@@ -285,7 +286,7 @@ export const register: Register = on => {
           />
           {recent.map(d => (
             <Text mono size="caption" wrap="truncate-end">
-              <Text dimColor>{d.ts.slice(11, 16)} </Text>
+              <Text dimColor>{clock(d.ts, false)} </Text>
               <Text color={MODEL_COLOR[d.model]}>{d.model.padEnd(7)}</Text>
               <Text>{`${d.task.slice(0, 11).padEnd(11)} ${d.complexity.toFixed(1)}/${d.deep.toFixed(1)}/${d.confidence.toFixed(1)} `}</Text>
               <Text dimColor>{`${d.latencyMs}ms`}</Text>
@@ -391,7 +392,16 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
-        {current ? (
+        {current && idleRun(current) ? (
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={2}>
+              <Text bold>{T.title}</Text>
+              {chip(current.status, RUN_COLOR[current.status] ?? '#888780')}
+            </Box>
+            <Text>{idleLine(current, T)}</Text>
+            <Text dimColor>{T.at(clock(current.updated, true))}</Text>
+          </Box>
+        ) : current ? (
           <Box flexDirection="column" gap={1}>
             <Box flexDirection="row" gap={2}>
               <Text bold>{T.title}</Text>
@@ -452,7 +462,7 @@ export const register: Register = on => {
             .reverse()
             .map(d => (
               <Text>
-                <Text dimColor>{d.ts.slice(11, 19)} </Text>
+                <Text dimColor>{clock(d.ts, true)} </Text>
                 <Text color={MODEL_COLOR[d.model]} bold>
                   {d.model.padEnd(7)}
                 </Text>

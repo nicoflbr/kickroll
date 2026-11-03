@@ -5,6 +5,7 @@
     kickroll resume <run_id> [--fake]
     kickroll status <run_id>
     kickroll clean <run_id> [--delete-branch]
+    kickroll bypassed "reason"
     kickroll bench --goal-file request.txt [--modes sonnet,orch] [--fake]
 
 ONLY FOR YOUR OWN, TRUSTED REPOS: worker code and tests run unsandboxed under your account.
@@ -27,7 +28,7 @@ from kickroll.plan import command_error, normalize_plan, tracked_files, validate
 from kickroll.planner import PlanError, create_plan, new_run_id, planner_tier
 from kickroll.routing import HaikuDecider, resolve_backend
 from kickroll.runner import ClaudeCall, ClaudeNotFound, ClaudeRunner, ErrorClass, FakeRunner
-from kickroll.status_file import Heartbeat, build_status, mark_ended, write_status
+from kickroll.status_file import Heartbeat, build_status, live_run, mark_ended, write_status
 from kickroll.store import DailyUsage, atomic_write_json, now_iso, read_json
 from kickroll.verify import PreflightError, resolve_python, run_checks
 
@@ -298,6 +299,16 @@ def cmd_clean(args, cfg, repo: Path) -> int:
     return EXIT_OK
 
 
+def cmd_bypassed(args, cfg, repo: Path) -> int:
+    """The chat handles the task itself (skill bypass): tell the pane, unless a live run owns status.json."""
+    if live := live_run(Path(cfg.status_path)):
+        say(f"Run {live} is still active; status not changed.")
+        return EXIT_USAGE
+    pane(cfg, new_run_id(), "BYPASSED", "BYPASS", msg.NOTE_BYPASSED.format(reason=" ".join(args.reason.split())))
+    say("Pane: task handled directly, no kickroll run.")
+    return EXIT_OK
+
+
 def cmd_bench(args, cfg, repo: Path) -> int:
     """Scaffold: same request + same test command per mode; records calls per model, wall clock, retries, tests."""
     goal = Path(args.goal_file).read_text(encoding="utf-8")
@@ -398,6 +409,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("run_id")
     sp.add_argument("--delete-branch", action="store_true")
 
+    sp = sub.add_parser("bypassed", help="tell the pane the task is handled directly, without a run")
+    sp.add_argument("reason", help="short reason, e.g. 'single-file fix'")
+
     sp = sub.add_parser("bench", help="measure: direct call vs. orchestrator")
     sp.add_argument("--goal-file", required=True)
     sp.add_argument("--test-cmd")
@@ -429,8 +443,8 @@ def main(argv=None) -> int:
     try:
         cfg = load_config(Path(args.config) if args.config else repo / "kickroll.toml")
         handler = {"plan": cmd_plan, "run": cmd_run, "resume": cmd_resume, "status": cmd_status,
-                   "clean": cmd_clean, "bench": cmd_bench}[args.cmd]
-        if args.cmd in ("status", "clean"):
+                   "clean": cmd_clean, "bench": cmd_bench, "bypassed": cmd_bypassed}[args.cmd]
+        if args.cmd in ("status", "clean", "bypassed"):
             return handler(args, cfg, repo)
         return run_with_heartbeat(handler, args, cfg, repo)
     except (PreflightError, ConfigError, ClaudeNotFound) as exc:

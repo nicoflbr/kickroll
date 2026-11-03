@@ -21,6 +21,8 @@ export type Messages = {
   paneOpened: string
   noDecisions: string
   stale: string
+  staleLine: (id: string, phase: string) => string
+  at: (time: string) => string
 }
 
 const en: Messages = {
@@ -51,6 +53,8 @@ const en: Messages = {
   paneOpened: 'kickroll pane opened.',
   noDecisions: 'No entries in router_log.jsonl yet.',
   stale: 'No kickroll process: last state, not live',
+  staleLine: (id, phase) => `No active run · last: ${id}, stopped at ${phase}`,
+  at: time => `last update ${time}`,
 }
 
 const de: Messages = {
@@ -81,6 +85,8 @@ const de: Messages = {
   paneOpened: 'kickroll-Pane geöffnet.',
   noDecisions: 'Noch keine Einträge in router_log.jsonl.',
   stale: 'Kein kickroll-Prozess: letzter Stand, nicht live',
+  staleLine: (id, phase) => `Kein aktiver Lauf · zuletzt: ${id}, abgebrochen bei ${phase}`,
+  at: time => `Stand ${time}`,
 }
 
 export function messages(lang: string | undefined): Messages {
