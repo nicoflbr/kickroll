@@ -106,6 +106,53 @@ class ConfigError(ValueError):
     pass
 
 
+# Must be >= 1 (everything else numeric: >= 0); floats also accept TOML integers.
+_POSITIVE = {"planner_timeout_s", "l1_timeout_s", "max_calls", "max_minutes", "max_parallel", "max_tasks",
+             "haiku_timeout_s", "jev_http_timeout_s", "jev_deadline_s", "jev_diff_chars", "daily_max_calls",
+             "daily_max_weighted"}
+
+
+def _is_num(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _str_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+def _checked(name: str, attr: str, default, value):
+    """Value of `name` (section.key) with the type of the default, or ConfigError."""
+    def bad(what):
+        return ConfigError(f"{name} must be {what}, not {value!r}"[:200])
+
+    if attr == "global_checks":
+        if not isinstance(value, list) or not all(_str_list(c) and c for c in value):
+            raise bad("a list of argv lists, e.g. [[\"python\", \"-m\", \"pytest\"]]")
+        return value
+    if isinstance(default, bool):
+        if not isinstance(value, bool):
+            raise bad("true or false")
+        return value
+    if isinstance(default, (int, float)):
+        if isinstance(default, int) and not (isinstance(value, int) and not isinstance(value, bool)):
+            raise bad("an integer")
+        if not _is_num(value):
+            raise bad("a number")
+        low = 1 if attr in _POSITIVE else 0
+        if value < low:
+            raise bad(f">= {low}")
+        return float(value) if isinstance(default, float) else value
+    if isinstance(default, str):
+        if not isinstance(value, str):
+            raise bad("a string")
+        return value
+    if isinstance(default, list):
+        if not _str_list(value):
+            raise bad("a list of strings, e.g. [\"python\", \"-m\", \"unittest\"]")
+        return value
+    return value
+
+
 def load_config(path: Path | None) -> Config:
     """Read kickroll.toml; unknown keys are an error (so typos stand out)."""
     cfg = Config()
@@ -122,10 +169,12 @@ def load_config(path: Path | None) -> Config:
             if key not in mapping:
                 raise ConfigError(f"Unknown key {section}.{key}")
             attr = mapping[key]
-            if attr is None:  # timeouts/weights per tier
+            if attr is None:  # timeouts/weights per tier: positive numbers
+                if not _is_num(value) or value <= 0:
+                    raise ConfigError(f"{section}.{key} must be a number > 0, not {value!r}"[:200])
                 getattr(cfg, section)[key] = value
             elif attr in valid:
-                setattr(cfg, attr, value)
+                setattr(cfg, attr, _checked(f"{section}.{key}", attr, getattr(cfg, attr), value))
     if cfg.planner_model not in ("sonnet", "opus"):
         raise ConfigError("planner.model must be 'sonnet' or 'opus'")
     if cfg.routing_backend not in ("auto", "jev", "planner", "heuristic", "haiku"):

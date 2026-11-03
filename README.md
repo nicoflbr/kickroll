@@ -127,7 +127,7 @@ The escalation ladder protects every backend against mis-routing.
 
 | Path | Purpose |
 | --- | --- |
-| `~/.kickroll` or `$KICKROLL_HOME` | `status.json` (for the desktop pane; includes per-model `usage` and the `jev` request counters), `heartbeat.json` (rewritten every 5 s while a kickroll command runs, so the pane can tell a dead run from a live one), `usage.json` (daily budget), `router_log.jsonl` (written by the optional prompt router in `examples/router`, not by runs), `runs/<id>/` (state, events, plan, report) |
+| `~/.kickroll` or `$KICKROLL_HOME` | `status/<run id>.json` and `status/bypass-<session>.json` (one entry per run or skill bypass for the desktop pane, so parallel runs and sessions never overwrite each other; includes per-model `usage` and the `jev` request counters), `status/pid-<pid>.beat.json` (rewritten every 5 s while a kickroll command runs, so the pane can tell a dead run from a live one; removed when it ends), `status.json` and `heartbeat.json` (the last entry again in the old format, for panes before 0.2.0), `usage.json` (daily budget), `router_log.jsonl` (written by the optional prompt router in `examples/router`, not by runs), `runs/<id>/` (state, events, plan, report) |
 | `kickroll.toml` in your repo | configuration, see `kickroll.example.toml` (unknown keys are an error) |
 | `docs/design.md` | design decisions and the reasoning behind them |
 | `mod/kickroll-panel` | Claude Desktop pane that shows a run live ([README](mod/kickroll-panel/README.md)) |

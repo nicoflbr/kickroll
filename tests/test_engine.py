@@ -319,12 +319,15 @@ class BudgetTest(EngineCase):
         self.assertEqual(o.start(), "PARTIAL")
         self.assertEqual(self.worker_calls(), [])
 
-    def test_opus_budget_fails_task(self):
+    def test_opus_budget_downgrades_once_then_fails(self):
         cfg = make_cfg(self.tmp, max_opus=0)
         o = self.orch(make_plan([code_task(risk="high")]), cfg=cfg, jev=FakeJev({"route": route_answers(risk="high")}))
         o.start()
         self.assertEqual(o.state["tasks"]["T1"]["status"], "FAILED")
         self.assertEqual(o.state["tasks"]["T1"]["reason"], "opus_budget")
+        self.assertTrue(o.state["tasks"]["T1"]["opus_downgraded"])
+        models = [c.model for c in self.worker_calls()]
+        self.assertTrue(models and set(models) == {"sonnet"}, models)
 
 
 class ParallelTest(EngineCase):

@@ -15,7 +15,7 @@ from .proc import kill_orphans
 from .prompts import REVIEW_GENERAL, reviewer_prompt, worker_prompt
 from .runner import ClaudeCall, ErrorClass
 from .safety import truncate
-from .status_file import build_status, write_status
+from .status_file import build_status, publish
 from .store import DailyUsage, EventLog, FileLock, atomic_write_json, now_iso, read_json, sha16
 from .verify import Outcome, PreflightError, level0, level1, parse_review, resolve_python, run_checks
 
@@ -47,7 +47,7 @@ class Orchestrator:
         self.lock = threading.RLock()
         self.git = Git(self.repo, excludes_file=write_excludes(self.run_dir / "artifact-ignore"))
         self.log = EventLog(self.run_dir / "events.jsonl", run_id)
-        self.status_writer = status_writer or (lambda d: write_status(Path(cfg.status_path), d))
+        self.status_writer = status_writer or (lambda d: publish(Path(cfg.status_path), d))
         self.fault_hook = fault_hook or (lambda point, tid: None)
         self.pause_reason: str | None = None
         self.budget_stop: str | None = None
@@ -292,6 +292,12 @@ class Orchestrator:
                 return
             attempt, tier = max(1, ts["attempt"]), ts["tier"]
             reason = self.acct.check("worker", tier)
+            if reason == "opus_budget" and not ts.get("opus_downgraded"):
+                # Retries of other tasks used up Opus: one more go on sonnet instead of failing unrun.
+                ts.update(tier="sonnet", opus_downgraded=True)
+                self.log.emit("opus_budget_downgrade", tid, attempt, tier="sonnet")
+                self._save()
+                continue
             if reason:
                 # Opus budget: the task fails; otherwise it stays READY and the run starts nothing new.
                 if reason != "opus_budget":

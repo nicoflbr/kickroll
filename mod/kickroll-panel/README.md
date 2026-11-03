@@ -5,18 +5,23 @@ phase pipeline, the current loop step (routing, worker, checks, tests, review, c
 attempt and retry arrow, task cards, budgets, the actual usage per model (calls, tokens, time)
 and the router's recent choices. The status line shows the active task and step.
 
-It only reads two files that kickroll writes, so it works with any kickroll run:
+It only reads files that kickroll writes, so it works with any kickroll run. Each run and each skill bypass
+has its own entry; with more than one entry the pane shows a tab bar (repository and short run id, a dot in
+the run's status color; live runs first, then by last update; at most five tabs plus an overflow tab that
+steps through the rest). Click a tab to see that run. Several sessions and repositories can run at the
+same time; only two runs in the same repository are refused by kickroll itself.
 
 | File | Content |
 | --- | --- |
-| `<data dir>/status.json` | run, phase, tasks, budgets, usage, jev request counters (no prompts, no diffs) |
-| `<data dir>/heartbeat.json` | pid and a counter, rewritten every 5 s while a kickroll command runs |
+| `<data dir>/status/<key>.json` | one entry per run (`<run id>`) or skill bypass (`bypass-<session>`): repository, run, phase, tasks, budgets, usage, jev request counters (no prompts, no diffs) |
+| `<data dir>/status/pid-<pid>.beat.json` | pid and a counter, rewritten every 5 s while a kickroll command runs |
+| `<data dir>/status.json`, `heartbeat.json` | kickroll before 0.2.0: read only when `status/` does not exist |
 | `<data dir>/router_log.jsonl` | decisions of the prompt router hook in `examples/router` (prompt hashes only); they cover all sessions, not the run |
 
 The data directory is `$KICKROLL_HOME` or `~/.kickroll`.
 
-A run shows as `STALE` (grey) when `status.json` says RUNNING but no heartbeat from the same pid has
-arrived for 30 s: the kickroll process is gone. The pane then shows one line (run id, the phase it
+A run shows as `STALE` (grey) when its entry says RUNNING but the beat file of its pid is missing or
+older than 30 s: the kickroll process is gone. The pane then shows one line (run id, the phase it
 stopped in, last update) instead of the whole loop. `BYPASSED` (blue) means the chat handled the task
 itself without a run (`kickroll bypassed "<reason>"`, called by the kickroll skill).
 
