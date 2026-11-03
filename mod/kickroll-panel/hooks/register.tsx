@@ -48,6 +48,15 @@ const TASK_COLOR: Record<string, string> = {
 }
 const INK = '#1b1b1b'
 
+// Decision timestamps are UTC ISO strings; show them in the viewer's local time.
+function clock(ts: string, seconds: boolean): string {
+  const t = new Date(ts)
+  if (isNaN(t.getTime())) return ts.slice(11, seconds ? 19 : 16)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const hm = `${pad(t.getHours())}:${pad(t.getMinutes())}`
+  return seconds ? `${hm}:${pad(t.getSeconds())}` : hm
+}
+
 // Change the shape tag when the fields of a decision or run change.
 const decisions = atom(
   { plugin: 'kickroll-panel', key: 'decisions' } as const,
@@ -285,7 +294,7 @@ export const register: Register = on => {
           />
           {recent.map(d => (
             <Text mono size="caption" wrap="truncate-end">
-              <Text dimColor>{d.ts.slice(11, 16)} </Text>
+              <Text dimColor>{clock(d.ts, false)} </Text>
               <Text color={MODEL_COLOR[d.model]}>{d.model.padEnd(7)}</Text>
               <Text>{`${d.task.slice(0, 11).padEnd(11)} ${d.complexity.toFixed(1)}/${d.deep.toFixed(1)}/${d.confidence.toFixed(1)} `}</Text>
               <Text dimColor>{`${d.latencyMs}ms`}</Text>
@@ -452,7 +461,7 @@ export const register: Register = on => {
             .reverse()
             .map(d => (
               <Text>
-                <Text dimColor>{d.ts.slice(11, 19)} </Text>
+                <Text dimColor>{clock(d.ts, true)} </Text>
                 <Text color={MODEL_COLOR[d.model]} bold>
                   {d.model.padEnd(7)}
                 </Text>
