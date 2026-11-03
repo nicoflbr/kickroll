@@ -7,11 +7,12 @@ dead run from a live one (a RUNNING status.json without a matching, moving heart
 """
 import os
 import threading
+import time
 from pathlib import Path
 
 from .store import atomic_write_json, now_iso, read_json
 
-RUN_STATUS = ("RUNNING", "PAUSED", "SUCCESS", "PARTIAL", "FAILED")
+RUN_STATUS = ("RUNNING", "PAUSED", "SUCCESS", "PARTIAL", "FAILED", "BYPASSED")
 PHASES = ("PREFLIGHT", "BYPASS", "PLAN", "APPROVAL", "EXECUTE", "DONE")
 TASK_STATUS = ("PENDING", "READY", "RUNNING", "ACCEPTED", "MERGED", "BLOCKED", "FAILED", "SKIPPED", "UNCLEAR")
 KINDS = ("code", "analysis", "review", "test")
@@ -29,7 +30,8 @@ _JEV_KEYS = {"calls", "errors", "seconds"}
 
 # internal run states -> pane
 _RUN_MAP = {"PLANNING": "RUNNING", "EXECUTING": "RUNNING", "RUNNING": "RUNNING", "PAUSED": "PAUSED",
-            "SUCCESS": "SUCCESS", "PARTIAL": "PARTIAL", "ABORTED": "FAILED", "FAILED": "FAILED"}
+            "SUCCESS": "SUCCESS", "PARTIAL": "PARTIAL", "ABORTED": "FAILED", "FAILED": "FAILED",
+            "BYPASSED": "BYPASSED"}
 _TASK_MAP = {"VERIFYING": "RUNNING", "RETRY": "RUNNING"}
 _STEP_MAP = {"L2": "L1"}  # L2 (Jev shadow) is shown as L1 in the pane (quick check)
 
@@ -146,6 +148,20 @@ def mark_ended(path: Path, note: str) -> bool:
     except (OSError, ValueError):
         return False
     return True
+
+
+def live_run(path: Path, max_age_s: float = 30.0) -> str | None:
+    """run_id of a RUNNING status whose writer still beats heartbeat.json (same pid, fresh), else None."""
+    d = read_json(Path(path))
+    beat_path = Path(path).with_name("heartbeat.json")
+    if not isinstance(d, dict) or d.get("status") != "RUNNING" or not d.get("pid"):
+        return None
+    beat = read_json(beat_path)
+    try:
+        fresh = time.time() - beat_path.stat().st_mtime < max_age_s
+    except OSError:
+        return None
+    return str(d.get("run_id", "")) if isinstance(beat, dict) and beat.get("pid") == d["pid"] and fresh else None
 
 
 class Heartbeat:

@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Budget, Decision, JevUsage, ModelUsage, RunStatus, TaskStatus } from '../types'
 import { messages } from './i18n'
-import { dashboard } from './svg'
+import { clock, dashboard, idleLine, idleRun } from './svg'
 
 const PANE = 'kickroll'
 const COMMAND = 'kickroll-panel'
@@ -26,6 +26,7 @@ const RUN_COLOR: Record<string, string> = {
   PARTIAL: '#EF9F27',
   FAILED: '#F09595',
   STALE: '#888780',
+  BYPASSED: '#85B7EB',
 }
 const TASK_GLYPH: Record<string, string> = {
   PENDING: '○',
@@ -47,15 +48,6 @@ const TASK_COLOR: Record<string, string> = {
   UNCLEAR: '#EF9F27',
 }
 const INK = '#1b1b1b'
-
-// Decision timestamps are UTC ISO strings; show them in the viewer's local time.
-function clock(ts: string, seconds: boolean): string {
-  const t = new Date(ts)
-  if (isNaN(t.getTime())) return ts.slice(11, seconds ? 19 : 16)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const hm = `${pad(t.getHours())}:${pad(t.getMinutes())}`
-  return seconds ? `${hm}:${pad(t.getSeconds())}` : hm
-}
 
 // Change the shape tag when the fields of a decision or run change.
 const decisions = atom(
@@ -400,7 +392,16 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
-        {current ? (
+        {current && idleRun(current) ? (
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={2}>
+              <Text bold>{T.title}</Text>
+              {chip(current.status, RUN_COLOR[current.status] ?? '#888780')}
+            </Box>
+            <Text>{idleLine(current, T)}</Text>
+            <Text dimColor>{T.at(clock(current.updated, true))}</Text>
+          </Box>
+        ) : current ? (
           <Box flexDirection="column" gap={1}>
             <Box flexDirection="row" gap={2}>
               <Text bold>{T.title}</Text>

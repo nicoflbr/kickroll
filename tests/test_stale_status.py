@@ -76,5 +76,27 @@ class CliAbortTest(TempDirCase):
         self.assertTrue((self.tmp / "heartbeat.json").is_file())
 
 
+class BypassedTest(CliAbortTest):
+    def _bypassed(self, reason="single-file fix"):
+        repo = make_repo(self.tmp)
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            return cli.main(["--repo", str(repo), "--config", str(self._cfg()), "bypassed", reason])
+
+    def test_replaces_a_dead_run(self):
+        write_status(self.tmp / "status.json", _status(pid=os.getpid() + 1))
+        self.assertEqual(self._bypassed("single-file\n fix"), cli.EXIT_OK)
+        d = json.loads((self.tmp / "status.json").read_text(encoding="utf-8"))
+        self.assertEqual((d["status"], d["phase"]), ("BYPASSED", "BYPASS"))
+        self.assertEqual(d["note"], "Handled directly in chat: single-file fix")
+        self.assertFalse((self.tmp / "heartbeat.json").exists())
+
+    def test_leaves_a_live_run_alone(self):
+        write_status(self.tmp / "status.json", _status())
+        (self.tmp / "heartbeat.json").write_text(json.dumps({"pid": os.getpid(), "beat": 1}), encoding="utf-8")
+        self.assertEqual(self._bypassed(), cli.EXIT_USAGE)
+        d = json.loads((self.tmp / "status.json").read_text(encoding="utf-8"))
+        self.assertEqual(d["status"], "RUNNING")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,9 @@ It only reads two files that kickroll writes, so it works with any kickroll run:
 The data directory is `$KICKROLL_HOME` or `~/.kickroll`.
 
 A run shows as `STALE` (grey) when `status.json` says RUNNING but no heartbeat from the same pid has
-arrived for 30 s: the kickroll process is gone and the pane shows its last state, not a live one.
+arrived for 30 s: the kickroll process is gone. The pane then shows one line (run id, the phase it
+stopped in, last update) instead of the whole loop. `BYPASSED` (blue) means the chat handled the task
+itself without a run (`kickroll bypassed "<reason>"`, called by the kickroll skill).
 
 ## Use
 

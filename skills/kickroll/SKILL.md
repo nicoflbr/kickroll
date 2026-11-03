@@ -20,6 +20,10 @@ tier. The work lands on a `kickroll/<run id>` branch. This skill drives that fro
   about three separable sub-tasks, or the repository has no usable test command, do it directly
   yourself and say why. kickroll also makes its own bypass decision; do not override it with
   `--force-orchestrate` unless the user asks.
+- **Whenever you handle the task directly instead** (your own decision above, or kickroll's bypass),
+  first run `KICKROLL --repo <repo> bypassed "<short reason, e.g. single-file fix>"`. It tells the
+  status pane that no run is coming, so the pane does not keep showing an older run. It costs no
+  Claude call. If it answers that a run is still active, leave it and mention that run to the user.
 - Never print or pass secrets on a command line (`TYPESAFE_API_KEY` stays in the environment).
 - Do not poll a running job. Run it in the background and wait for the notification.
 
