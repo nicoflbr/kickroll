@@ -6,6 +6,7 @@ import { messages } from './i18n'
 import { dashboard } from './svg'
 
 const PANE = 'kickroll'
+const COMMAND = 'kickroll-panel'
 const POLL_MS = 1500
 const KEEP = 200
 
@@ -196,11 +197,17 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     const T = messages(await $.env.get('KICKROLL_LANG'))
-    await $.command.register({
-      name: 'kickroll',
-      description: T.commandDescription,
-    })
+    // Open first: a refused command must not hide the pane.
     void $.ui.open({ id: PANE, title: T.paneTitle })
+    // `/kickroll` belongs to the kickroll plugin's skill, so the command has its own name.
+    try {
+      await $.command.register({
+        name: COMMAND,
+        description: T.commandDescription,
+      })
+    } catch (err) {
+      $.ui.log(`kickroll-panel: /${COMMAND} not registered: ${String(err)}`)
+    }
     timer?.cancel()
     timer = $.clock.every(POLL_MS, () => void refresh($))
     await refresh($)
@@ -208,7 +215,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'kickroll' }, async $ => {
+  on('command.run', { command: COMMAND }, async $ => {
     const T = messages(await $.env.get('KICKROLL_LANG'))
     await $.ui.open({ id: PANE, title: T.paneTitle })
 

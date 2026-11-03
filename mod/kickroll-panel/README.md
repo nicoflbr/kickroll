@@ -16,7 +16,8 @@ The data directory is `$KICKROLL_HOME` or `~/.kickroll`.
 
 ## Use
 
-Open the pane with `/kickroll`. Set `KICKROLL_LANG=de` for German texts (default: English).
+The pane opens when a session starts (start a new session after installing). If you closed it,
+reopen it with `/kickroll-panel` (`/kickroll` is the kickroll skill). Set `KICKROLL_LANG=de` for German texts (default: English).
 
 The pane is drawn as an image on the Desktop surface (sharper than the interactive frame in our
 tests) and as text on other surfaces. It polls every 1.5 s.

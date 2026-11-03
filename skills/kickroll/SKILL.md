@@ -86,7 +86,7 @@ Run it in the background. Tell the user:
 
 - the run id (printed at the start and in `<data dir>/status.json`; data dir is `$KICKROLL_HOME` or
   `~/.kickroll`);
-- progress is visible in the Claude Desktop pane `/kickroll` if the `kickroll-panel` mod is
+- progress is visible in the Claude Desktop pane `/kickroll-panel` if the `kickroll-panel` mod is
   installed, otherwise with `KICKROLL --repo <repo> status <run id>`;
 - the repository's own branch is not touched; work happens on `kickroll/<run id>`.
 
