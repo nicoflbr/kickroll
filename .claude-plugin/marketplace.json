@@ -1,0 +1,19 @@
+{
+  "name": "kickroll",
+  "owner": {
+    "name": "nicoflbr"
+  },
+  "plugins": [
+    {
+      "name": "kickroll",
+      "source": "./",
+      "description": "Skill that starts kickroll runs from the chat."
+    },
+    {
+      "name": "kickroll-panel",
+      "source": "./mod/kickroll-panel",
+      "description": "Claude Desktop pane that shows a kickroll run live."
+    }
+  ],
+  "description": "kickroll: cost-aware orchestration of Claude Code workers with test-driven retries, plus a Claude Desktop pane."
+}

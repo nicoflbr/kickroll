@@ -1,0 +1,13 @@
+{
+  "name": "kickroll-panel",
+  "version": "0.1.0",
+  "description": "Shows the kickroll loop (phase, step, attempt, budgets) and router decisions live in a pane and the status line.",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "kickroll",
+    "orchestrator",
+    "status"
+  ]
+}

@@ -1,0 +1,21 @@
+# Run data and state (never commit)
+runs/
+state.json
+status.json
+usage.json
+*.jsonl
+plan.json
+kickroll.toml
+# Secrets
+.env
+.env.*
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+# Local scratch
+.claude/

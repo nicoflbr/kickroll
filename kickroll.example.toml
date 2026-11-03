@@ -1,0 +1,61 @@
+# kickroll v1 - example configuration. Save as <repo>/kickroll.toml or pass with --config.
+# All values are starting points; unknown keys are an error.
+
+[timeouts]          # seconds per worker call and tier (single source, not in the plan)
+haiku = 300
+sonnet = 600
+opus = 900
+planner = 900
+l1 = 120            # per L1 command (tests, py_compile)
+
+[budget]            # per run; resume carries over what was used
+max_calls = 25              # workers + reviewers
+max_opus = 3                # worker/reviewer calls on opus (the planner does NOT count here)
+max_planner_calls = 2       # planner incl. one re-plan
+max_reviewer_calls = 6
+max_minutes = 60
+daily_max_calls = 150       # daily budget across runs (<data dir>/usage.json)
+daily_max_weighted = 120.0
+
+[weights]           # cost proxy: calls x weight (subscription weighting unknown)
+haiku = 0.33
+sonnet = 1.0
+opus = 1.7
+
+[planner]
+model = "opus"      # default opus; "sonnet" allowed (then opus only for complexity>1.5 or risk=high)
+
+[routing]
+# auto = jev (TYPESAFE_API_KEY set + typesafe-sdk installed) -> planner annotations -> heuristic.
+# haiku = opt-in, bypass decision only (9-17 s and 35-74k cache tokens per call, uncalibrated, leans to haiku).
+backend = "auto"
+haiku_timeout_s = 30
+
+[worker]
+max_parallel = 2                    # only read tasks run in parallel; never two opus calls at once
+max_timeouts_per_task = 2           # timeouts never count as attempts; afterwards BLOCKED
+worker_tools = "Read,Grep,Glob,Edit,Write"   # hard whitelist: no Bash/PowerShell/Agent/Web
+read_tools = "Read,Grep,Glob"
+setting_sources = "project"         # verified live: keeps global user hooks out of workers; empty -> "project"
+extra_claude_args = ["--permission-mode", "acceptEdits"]   # needed so Edit/Write are not blocked in -p mode
+
+[jev]               # optional backend
+enabled = true
+send_diffs = false          # opt-in per repo; redacted before sending even then
+model = "jev-latest"
+http_timeout_s = 5.0
+deadline_s = 8.0            # overall deadline incl. SDK retries
+diff_chars = 6000
+bypass_min_subtasks = 1.5   # orchestrate only if est_subtasks >= 1.5 (else direct call)
+
+[checks]
+test_command = ["python", "-m", "unittest", "discover", "-s", "tests"]
+global_checks = []          # more template commands, e.g. [["python", "-m", "pytest", "tests"]]
+python = "auto"             # auto: <repo>/.venv or venv, else this interpreter; or a path
+max_tasks = 8
+
+[paths]                     # empty = defaults (data dir = $KICKROLL_HOME or ~/.kickroll)
+runs_dir = ""               # <data dir>/runs
+worktree_root = ""          # %LOCALAPPDATA%/kickroll/wt, or $XDG_CACHE_HOME (~/.cache)/kickroll/wt
+usage_path = ""             # <data dir>/usage.json
+status_path = ""            # <data dir>/status.json (desktop pane)
