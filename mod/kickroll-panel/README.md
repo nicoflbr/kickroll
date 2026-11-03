@@ -32,7 +32,7 @@ claude --plugin-dir mod/kickroll-panel
 or install it from the marketplace of this repository:
 
 ```
-/plugin install kickroll-panel --marketplace <owner>/<repo>
+/plugin install kickroll-panel --marketplace nicoflbr/kickroll
 ```
 
 Validate with `claude plugin validate mod/kickroll-panel`.

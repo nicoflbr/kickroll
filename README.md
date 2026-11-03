@@ -87,12 +87,12 @@ and it does not orchestrate small tasks.
 At the prompt of a terminal session:
 
 ```
-/plugin install kickroll --marketplace <owner>/<repo>
+/plugin install kickroll --marketplace nicoflbr/kickroll
 ```
 
-From a shell: `claude plugin install kickroll --marketplace <owner>/<repo>`. In the desktop app,
+From a shell: `claude plugin install kickroll --marketplace nicoflbr/kickroll`. In the desktop app,
 where `/plugin` does not run: click **+** next to the prompt box, then Plugins, Add marketplace with
-`<owner>/<repo>`, then Add plugin. Optionally also install `kickroll-panel` (see below) to watch a run live.
+`nicoflbr/kickroll`, then Add plugin. Optionally also install `kickroll-panel` (see below) to watch a run live.
 
 The skill finds the Python package relative to itself, so `pip install` is not required for this route.
 Then simply say, in a git repository of your own: *"Use kickroll to add X, with tests"*.
