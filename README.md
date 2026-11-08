@@ -153,6 +153,13 @@ kickroll defect, fixed in 0.2.0: a planned test command that could never import 
 package), Jev rejecting three attempts whose tests all passed because it only saw the worker's report,
 and retries using up the Opus budget so that the analysis task never ran.
 
+The most frequent planner slip is an acceptance command that names a test file the plan does not
+provide (`tests.test_cli` while the file is `tests/test_cli_pangram.py`). Up to 0.2.1 that rejected the
+plan, and when the re-plan made the same kind of slip the run ended with "Plan invalid". Since 0.2.2
+kickroll repairs it itself: it adds the missing dependency on a test task that writes the file, or
+inserts a test task (`added_by: kickroll`) that writes the test before the implementation and is frozen
+like any other. `plan` prints each repair as "Plan repaired: ...".
+
 ## Examples: the stand-alone router
 
 `examples/router` contains the first version of this idea: classify one prompt (with Jev) and either

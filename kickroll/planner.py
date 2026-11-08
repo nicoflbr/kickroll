@@ -5,7 +5,7 @@ import re
 import secrets
 from datetime import datetime
 
-from .plan import normalize_plan, tracked_files, validate_plan
+from .plan import normalize_plan, repair_test_sources, tracked_files, validate_plan
 from .prompts import planner_prompt, planner_schema_json
 from .runner import ClaudeCall
 
@@ -61,8 +61,9 @@ def assemble_plan(raw: dict, run_id: str, goal: str, checks: list) -> dict:
 
 
 def create_plan(goal: str, run_id: str, cfg, runner, acct, repo: str, tier: str, checks: list,
-                on_call=None, on_invalid=None) -> dict:
+                on_call=None, on_invalid=None, on_repair=None) -> dict:
     errors: list[str] | None = None
+    existing = tracked_files(repo)
     for round_no in (1, 2):
         reason = acct.check("planner", tier)
         if reason:
@@ -84,7 +85,10 @@ def create_plan(goal: str, run_id: str, cfg, runner, acct, repo: str, tier: str,
                 on_invalid(round_no, errors)
             continue
         plan = assemble_plan(raw, run_id, goal, checks)
-        errors = validate_plan(plan, cfg.max_tasks, tracked_files(repo))
+        notes = repair_test_sources(plan, existing)
+        if notes and on_repair:
+            on_repair(notes)
+        errors = validate_plan(plan, cfg.max_tasks, existing)
         if not errors:
             return plan
         if on_invalid:

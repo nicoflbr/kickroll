@@ -174,7 +174,8 @@ def cmd_plan(args, cfg, repo: Path) -> int:
     pane(cfg, run_id, "RUNNING", "PLAN", msg.NOTE_PLANNER.format(tier=tier), budget=counters, started=started, repo=repo)
     try:
         plan = create_plan(args.goal, run_id, cfg, runner, acct, str(repo), tier, checks,
-                           on_invalid=lambda n, errs: say(f"Planner attempt {n} rejected: " + "; ".join(errs)[:600]))
+                           on_invalid=lambda n, errs: say(f"Planner attempt {n} rejected: " + "; ".join(errs)[:600]),
+                           on_repair=lambda notes: say("Plan repaired: " + "; ".join(notes)[:600]))
     except PlanError as exc:
         pane(cfg, run_id, "FAILED", "DONE", msg.NOTE_PLAN_INVALID, budget=counters, started=started, repo=repo)
         say(f"{exc}")

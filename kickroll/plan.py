@@ -233,7 +233,7 @@ def validate_plan(plan: dict, max_tasks: int = 8, existing: Iterable[str] = ()) 
     tasks_list = plan.get("tasks")
     if not isinstance(tasks_list, list) or not tasks_list:
         return errors + ["tasks missing or empty"]
-    if len(tasks_list) > max_tasks:
+    if len([t for t in tasks_list if not (isinstance(t, dict) and t.get("added_by") == ADDED_BY)]) > max_tasks:
         errors.append(f"at most {max_tasks} tasks allowed")
     tasks: dict = {}
     for t in tasks_list:
@@ -411,6 +411,96 @@ def _check_test_sources(tasks: dict, acc_files: list[str], existing: list[str] =
                     errors.append(f"{tid}/{c.get('id')}: test target {tg} not from acceptance_files/upstream test task "
                                   f"(frozen test files in this plan: {have})")
     return errors
+
+
+ADDED_BY = "kickroll"  # task["added_by"] of test tasks that repair_test_sources inserted
+_TEST_PART = re.compile(r"^(test_\w*|\w+_test|test)$")
+
+
+def _test_file_for(kind: str, target: str, tid: str) -> str | None:
+    """File a missing test target would live in (`tests.test_cli.CliTest` -> `tests/test_cli.py`)."""
+    if kind == "module":
+        parts = target.split(".")
+        cut = next((i for i, p in enumerate(parts) if _TEST_PART.match(p)), len(parts) - 1)
+        path = "/".join(parts[:cut + 1]) + ".py"
+    elif target.endswith(".py"):
+        path = norm_path(target)
+    else:
+        path = f"{norm_path(target).rstrip('/')}/test_{tid.lower()}.py"
+    if path_error(path) or matches_any(path, DEFAULT_FORBIDDEN):
+        return None
+    return path
+
+
+def repair_test_sources(plan: dict, existing: Iterable[str] = ()) -> list[str]:
+    """Fix the planner's most common slip in place instead of rejecting the plan: a code task's acceptance
+    test that nobody provides. If a test task already writes it, the missing dependency is added; otherwise a
+    test task is inserted that writes the file before the implementation (it is frozen once accepted).
+    Returns one note per repair. Plans with structural errors are left alone (validate_plan reports them)."""
+    tasks_list = plan.get("tasks")
+    if not isinstance(tasks_list, list) or not all(isinstance(t, dict) and isinstance(t.get("id"), str)
+                                                   for t in tasks_list):
+        return []
+    tasks = {t["id"]: t for t in tasks_list}
+    if len(tasks) != len(tasks_list) or not isinstance(plan.get("acceptance_files", []), list) or _check_dag(tasks):
+        return []
+    acc_files = [norm_path(f["path"]) for f in plan.get("acceptance_files", [])
+                 if isinstance(f, dict) and isinstance(f.get("path"), str)]
+    existing = [norm_path(e) for e in existing]
+    notes = []
+    for tid in [t["id"] for t in tasks_list]:
+        t = tasks[tid]
+        if t.get("kind") != "code" or not _str_list(t.get("writes")) or not isinstance(t.get("acceptance"), list):
+            continue
+        own_writes = [norm_path(w) for w in t["writes"]]
+        test_writers = {k: [norm_path(w) for w in x["writes"]] for k, x in tasks.items()
+                        if x.get("kind") == "test" and _str_list(x.get("writes"))}
+        new_files = []
+        for c in t["acceptance"]:
+            if not isinstance(c, dict) or c.get("type") != "command" or command_error(c.get("cmd")):
+                continue
+            tkind, targets = test_targets(c["cmd"])
+            if tkind not in ("module", "path"):
+                continue
+            for tg in targets:
+                anc = ancestors(tasks, tid)
+                trusted = [e for e in existing if not any(glob_match(w, e) for w in own_writes)]
+                sources = acc_files + [p for a in anc for p in test_writers.get(a, [])] + trusted + new_files
+                if any(target_covers(tkind, tg, s) for s in sources):
+                    continue
+                writer = next((k for k, ps in test_writers.items() if k != tid and tid not in ancestors(tasks, k)
+                               and any(target_covers(tkind, tg, p) for p in ps)), None)
+                if writer:
+                    t.setdefault("depends_on", []).append(writer)
+                    notes.append(f"{tid}: added dependency on test task {writer} (provides {tg})")
+                    continue
+                path = _test_file_for(tkind, tg, tid)
+                if path and not any(glob_match(path, w) for w in own_writes) and path not in new_files:
+                    new_files.append(path)
+        if new_files:
+            new_id = next(f"T{n}" for n in range(1, 1000) if f"T{n}" not in tasks)
+            tasks[new_id] = _auto_test_task(new_id, t, new_files)
+            tasks_list.insert(tasks_list.index(t), tasks[new_id])
+            t.setdefault("depends_on", []).append(new_id)
+            notes.append(f"{tid}: added test task {new_id} that writes {', '.join(new_files)} first")
+    return notes
+
+
+def _auto_test_task(new_id: str, code: dict, files: list[str]) -> dict:
+    cmds = "; ".join(" ".join(c["cmd"]) for c in code.get("acceptance", [])
+                     if isinstance(c, dict) and c.get("type") == "command" and _str_list(c.get("cmd")))
+    desc = (f"Write the acceptance tests for task {code['id']} before it is implemented, in exactly these files: "
+            f"{', '.join(files)}. Test the behaviour task {code['id']} asks for, concretely (real inputs and expected "
+            f"outputs, no placeholder asserts). The tests are expected to fail until {code['id']} is done; they will "
+            f"later run as: {cmds}.\nTask {code['id']} ({code.get('title', '')}): {code.get('description', '')}")
+    hints = [norm_path(w) for w in code.get("writes", []) if "*" not in w]
+    crits = [{"id": f"{new_id}-A{i + 1}", "type": "file_exists", "path": p} for i, p in enumerate(files)]
+    crits.append({"id": f"{new_id}-A{len(files) + 1}", "type": "command", "cmd": ["python", "-m", "py_compile", *files]})
+    return {"id": new_id, "title": f"Tests for {code['id']}: {code.get('title', '')}"[:60], "description": desc[:1500],
+            "kind": "test", "risk": "low", "complexity": 0.8, "suggested_tier": "sonnet",
+            "depends_on": list(code.get("depends_on", [])), "writes": list(files),
+            "forbidden": list(DEFAULT_FORBIDDEN), "inputs": {"files": hints, "artifacts": []}, "budget": {},
+            "acceptance": crits, "added_by": ADDED_BY}
 
 
 def frozen_paths_for(plan: dict, tid: str | None = None) -> list[str]:
